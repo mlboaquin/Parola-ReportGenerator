@@ -1,11 +1,11 @@
 # Patent Report Generator
 
-This tool automates the generation of patent reports (Invalidity, FTO, etc.) by processing Excel data files and populating Word document templates.
+This tool automates the generation of patent reports (Invalidity) by processing Excel data files and populating Word document templates.
 
 ## Features
 
 - **Automated Report Generation**: Generates comprehensive reports from Excel data.
-- **Support for Multiple Report Types**: Currently supports Invalidity and FTO reports.
+- **Support for Report Types**: Currently supports Invalidity Reports.
 - **Update Mode**: Ability to update existing reports while preserving manual edits.
 - **Web Scraping**: Fetches abstract and claim data from Google Patents when not available in the input.
 - **GUI Interface**: User-friendly graphical interface built with PyQt6.
