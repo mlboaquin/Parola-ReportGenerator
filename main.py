@@ -2477,6 +2477,16 @@ class PatentReportGenerator:
         self.log(f"DEBUG: update_mode = {self.update_mode}")
         self.log(f"DEBUG: edited_doc is None = {self.edited_doc is None}")
         try:
+            #Feb16: Process Mappings Overview placeholder
+            mappings_overview_text = f"{self.claim_word} {self.format_claims_as_ranges(self.ClaimNumbers)} of the {self.short_patent_name_lower}"
+            self.replace_in_paragraphs_and_tables(self.doc, {
+                "[MAPPINGS_OVERVIEW]": mappings_overview_text
+            })
+            if self.gen_doc and self.gen_doc != self.doc:
+                self.replace_in_paragraphs_and_tables(self.gen_doc, {
+                    "[MAPPINGS_OVERVIEW]": mappings_overview_text
+                })
+
             # Diagnostics: capture section indices before any changes
             try:
                 def _idx_of(text):
