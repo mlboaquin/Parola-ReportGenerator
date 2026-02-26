@@ -2004,6 +2004,8 @@ class PatentReportGenerator:
                         auth = ref_obj.CurrentAssignee if ref_obj.CurrentAssignee else ref_obj.OriginalAssignee
                         if auth == "nan" or auth == "":
                             auth = ""
+                        # Fix: Remove extra space before commas
+                        auth = auth.replace(" ,", ",")
                         self.set_cell_text(row_cells[2], auth or "", size=9)
 
                     if sorted_related_refs:
@@ -2949,19 +2951,55 @@ class PatentReportGenerator:
                   def format_query_cell(cell, query_text, database_name):
                       self.clear_cell(cell)
                       para = cell.paragraphs[0]
-                      special_databases = ['PQAI', 'Google Search', 'Amazon', 'Alibaba']
-                      needs_quotes_and_italics = database_name in special_databases
-                      # Extended operator pattern to match boolean and proximity tokens
-                      op_pattern = r'(\bAND\b|\bOR\b|\bNOT\b|\bNEAR/\d+\b|\bNEAR\d*\b|\bADJ\d*\b|\b[FPS]\b|\b\d+[DW]\b)'
+                      
+                      # Fix Issue 3: Strip existing quotes to prevent doubling
+                      if query_text.startswith('"') and query_text.endswith('"'):
+                          query_text = query_text[1:-1]
+                      
+                      # Fix Issue 2: Detect natural language queries
+                      def is_natural_language(text):
+                          # Check for presence of common query operators/functions
+                          operators = [r'\bAND\b', r'\bOR\b', r'\bNOT\b', r'\bNEAR/\d+\b', r'\bNEAR\d*\b', r'\bADJ\d*\b', r'\bCPC=', r'\bIPC=']
+                          return not any(re.search(op, text) for op in operators)
+
+                      #Feb25
+                      # Database-first approach
+                      ALWAYS_BOOLEAN = ['Google Patents', 'Orbit', 'Espacenet', 'KIPRIS', 'J-PlatPat',
+                                        'WIPO Patentscope', 'Google Scholar', 'Science Direct', 'IEEE']
+                      ALWAYS_NL = ['PQAI', 'Google Search', 'Amazon', 'Alibaba', 'ManualsLib',
+                                  'Internet Archive']
+
+                      if database_name in ALWAYS_BOOLEAN:
+                          needs_quotes_and_italics = False
+                      elif database_name in ALWAYS_NL:
+                          needs_quotes_and_italics = True
+                      else:
+                          # Fallback: detect from query text for unknown databases
+                          needs_quotes_and_italics = is_natural_language(query_text)
+
+                      op_pattern = r'(\bAND\b|\bOR\b|\bNOT\b|\bNEAR/\d+\b|\bNEAR\d*\b|\bADJ\d*\b|\b[FPS]\b|\b\d+[DW]\b|\bCPC=|\bIPC=)'
+
                       if needs_quotes_and_italics:
+                          # Split off any keyword:value filters at the end (e.g. before:2006-09-01, after:priority:20060901)
+                          filter_pattern = r'^(.*?)(\s+(?:[a-zA-Z]+:)+[^\s"]+(?:\s+(?:[a-zA-Z]+:)+[^\s"]+)*)$'
+                          filter_match = re.match(filter_pattern, query_text, re.DOTALL)
+                          if filter_match and filter_match.group(2).strip():
+                              main_query = filter_match.group(1).strip()
+                              trailing_filters = filter_match.group(2)
+                          else:
+                              main_query = query_text
+                              trailing_filters = ""
+
+                          # Add opening quote
                           quote_run = para.add_run('"')
                           quote_run.font.name = 'Inter'
                           quote_run.font.size = Pt(9)
-                          parts = re.split(op_pattern, query_text)
+
+                          parts = re.split(op_pattern, main_query)
                           for part in parts:
                               if not part:
                                   continue
-                              if re.match(r'^(AND|OR|NOT|NEAR/\d+|NEAR\d*|ADJ\d*|[FPS]|\d+[DW])$', part):
+                              if re.match(r'^(AND|OR|NOT|NEAR/\d+|NEAR\d*|ADJ\d*|[FPS]|\d+[DW]|CPC=|IPC=)$', part):
                                   run = para.add_run(part)
                                   run.italic = True
                                   run.font.name = 'Inter'
@@ -2971,15 +3009,25 @@ class PatentReportGenerator:
                                   run.italic = True
                                   run.font.name = 'Inter'
                                   run.font.size = Pt(9)
+
+                          # Add closing quote
                           quote_run = para.add_run('"')
                           quote_run.font.name = 'Inter'
                           quote_run.font.size = Pt(9)
+
+                          # Add trailing filters outside quotes (plain text, not italic)
+                          if trailing_filters:
+                              run = para.add_run(trailing_filters)
+                              run.font.name = 'Inter'
+                              run.font.size = Pt(9)
+
                       else:
+                          # Boolean databases: plain text, operators bolded
                           parts = re.split(op_pattern, query_text)
                           for part in parts:
                               if not part:
                                   continue
-                              if re.match(r'^(AND|OR|NOT|NEAR/\d+|NEAR\d*|ADJ\d*|[FPS]|\d+[DW])$', part):
+                              if re.match(r'^(AND|OR|NOT|NEAR/\d+|NEAR\d*|ADJ\d*|[FPS]|\d+[DW]|CPC=|IPC=)$', part):
                                   run = para.add_run(part)
                                   run.bold = True
                                   run.font.name = 'Inter'
