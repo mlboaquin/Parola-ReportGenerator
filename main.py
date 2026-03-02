@@ -1403,7 +1403,7 @@ class PatentReportGenerator:
         except Exception as e:
             self.log(f"Error setting cell text: {str(e)}")
 
-    def add_hyperlink_to_paragraph(self, doc, paragraph, url, text, size=10):
+    def add_hyperlink_to_paragraph(self, doc, paragraph, url, text, size=10, color_hex="0000FF"):
         try:
             part = doc.part
             r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
@@ -1422,7 +1422,7 @@ class PatentReportGenerator:
             size_cs_element.set(qn('w:val'), str(size * 2))
             run_props.append(size_cs_element)
             color_element = OxmlElement('w:color')
-            color_element.set(qn('w:val'), '0000FF')
+            color_element.set(qn('w:val'), color_hex)
             run_props.append(color_element)
             underline_element = OxmlElement('w:u')
             underline_element.set(qn('w:val'), 'single')
@@ -1989,7 +1989,7 @@ class PatentReportGenerator:
                             if link_url:
                                 p2 = row_cells[1].add_paragraph()
                                 p2.add_run("[")
-                                self.add_hyperlink_to_paragraph(target_doc, p2, link_url, "Link", size=9)
+                                self.add_hyperlink_to_paragraph(target_doc, p2, link_url, "Link", size=9, color_hex="0070C0")
                                 p2.add_run("]")
                                 self.apply_font_style(p2, size=9)
                         else:
