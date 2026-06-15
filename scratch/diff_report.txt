@@ -1,0 +1,2192 @@
+Diff for unlock_password_protected_docx:
+--- main.py: unlock_password_protected_docx
++++ notebook.txt: unlock_password_protected_docx
+@@ -1,22 +1,18 @@
+ def unlock_password_protected_docx(file_bytes, password):
+-    """Decrypt password-protected Word file"""
+-    try:
+-        if msoffcrypto is None:
+-            print("⚠ Note: msoffcrypto not available, assuming file is not password-protected")
+-            return io.BytesIO(file_bytes)
+-            
+-        encrypted_file = io.BytesIO(file_bytes)
+-        decrypted_file = io.BytesIO()
++          """Decrypt password-protected Word file"""
++          try:
++              encrypted_file = io.BytesIO(file_bytes)
++              decrypted_file = io.BytesIO()
+ 
+-        office_file = msoffcrypto.OfficeFile(encrypted_file)
+-        office_file.load_key(password=password)
+-        office_file.decrypt(decrypted_file)
++              office_file = msoffcrypto.OfficeFile(encrypted_file)
++              office_file.load_key(password=password)
++              office_file.decrypt(decrypted_file)
+ 
+-        decrypted_file.seek(0)
+-        print("✓ Template unlocked successfully!")
+-        return decrypted_file
+-    except Exception as e:
+-        print(f"⚠ Note: {e}")
+-        print("If file is not password-protected, this is normal. Proceeding...")
+-        # Return original bytes if decryption fails (file might not be protected)
+-        return io.BytesIO(file_bytes)
++              decrypted_file.seek(0)
++              print("✓ Template unlocked successfully!")
++              return decrypted_file
++          except Exception as e:
++              print(f"⚠ Note: {e}")
++              print("If file is not password-protected, this is normal. Proceeding...")
++              # Return original bytes if decryption fails (file might not be protected)
++              return io.BytesIO(file_bytes)
+================================================================================
+
+Diff for extract_mapping_section:
+--- main.py: extract_mapping_section
++++ notebook.txt: extract_mapping_section
+@@ -1,72 +1,24 @@
+ def extract_mapping_section(edited_doc):
+-    """Extract the Mapping section from edited document"""
+-    if not edited_doc:
+-        return []
+-    body = edited_doc.element.body
+-    elements = []
+-    start_found = False
+-    
+-    # Debug: Print all paragraph text to help identify the correct patterns
+-    print("DEBUG: Searching for mapping section in edited document...")
+-    for i, child in enumerate(list(body)):
+-        if child.tag == qn('w:p'):
+-            p = Paragraph(child, edited_doc)
+-            text = p.text.strip()
+-            if text and len(text) < 100:  # Only print short text (likely headings)
+-                print(f"  Paragraph {i}: '{text}'")
+-    
+-    for child in list(body):
+-        if child.tag == qn('w:p'):
+-            p = Paragraph(child, edited_doc)
+-            text_lower = p.text.lower().strip()
+-            # Match exactly on the section header text
+-            if not start_found and "mappings based on selected references" in text_lower:
+-                print(f"DEBUG: Found mapping section start with text: '{p.text}'")
+-                start_found = True
+-                # Include the header itself
+-                elements.append(child)
+-                continue
+-        if start_found:
+-            if child.tag == qn('w:p'):
+-                p = Paragraph(child, edited_doc)
+-                text_lower = p.text.lower().strip()
+-                # Stop at Disclaimer section - everything after should be regenerated
+-                # Note: Appendices and Search Strategies are regenerated from Excel
+-                if "disclaimer" in text_lower:
+-                    print(f"DEBUG: Found mapping section end with text: '{p.text}'")
+-                    break
+-            # Include all elements (paragraphs, tables, drawings, etc.)
+-            if child.tag == qn('w:p'):
+-                p = Paragraph(child, edited_doc)
+-                # Check if this paragraph contains page breaks by looking at XML
+-                has_page_break = False
+-                try:
+-                    for run_element in child.xpath('.//w:br'):
+-                        break_type = run_element.get(qn('w:type'))
+-                        if break_type == 'page':
+-                            has_page_break = True
+-                            break
+-                except Exception:
+-                    pass
+-                
+-                text_content = p.text.strip()
+-                if text_content or has_page_break:
+-                    # Include paragraph if it has text OR if it contains page breaks
+-                    elements.append(child)
+-            else:
+-                # Include all other elements (tables, drawings, etc.)
+-                elements.append(child)
+-    
+-    print(f"DEBUG: Extracted {len(elements)} elements from mapping section")
+-    
+-    # If no elements found, try a more general search
+-    if len(elements) == 0:
+-        print("DEBUG: No mapping section found with specific patterns, trying general search...")
+-        for i, child in enumerate(list(body)):
+-            if child.tag == qn('w:p'):
+-                p = Paragraph(child, edited_doc)
+-                text_lower = p.text.lower().strip()
+-                if "mappings based" in text_lower:
+-                    print(f"  Found potential mapping header at paragraph {i}: '{p.text[:100]}...'")
+-    
+-    return [deepcopy(el) for el in elements]
++          """Extract the Mapping section from edited document"""
++          if not edited_doc:
++              return []
++          body = edited_doc.element.body
++          elements = []
++          start_found = False
++          for child in list(body):
++              if child.tag == qn('w:p'):
++                  p = Paragraph(child, edited_doc)
++                  text_lower = p.text.lower().strip()
++                  if not start_found and ("mappings based on selected references" in text_lower):
++                      start_found = True
++                      elements.append(child)
++                      continue
++              if start_found:
++                  if child.tag == qn('w:p'):
++                      p = Paragraph(child, edited_doc)
++                      text_lower = p.text.lower().strip()
++                      # Look for various possible end markers
++                      if any(marker in text_lower for marker in ["disclaimer", "appendix a", "appendix b", "search strategies"]):
++                          break
++                  elements.append(child)
++          return [deepcopy(el) for el in elements]
+================================================================================
+
+Diff for extract_criteria_section:
+--- main.py: extract_criteria_section
++++ notebook.txt: extract_criteria_section
+@@ -1,69 +1,23 @@
+ def extract_criteria_section(edited_doc):
+-    """Extract the Criteria for Publication Search section from edited document"""
+-    if not edited_doc:
+-        return []
+-    body = edited_doc.element.body
+-    elements = []
+-    start_found = False
+-    
+-    # Debug: Print all paragraph text to help identify the correct patterns
+-    print("DEBUG: Searching for criteria section in edited document...")
+-    for i, child in enumerate(list(body)):
+-        if child.tag == qn('w:p'):
+-            p = Paragraph(child, edited_doc)
+-            text = p.text.strip()
+-            if text and len(text) < 100:  # Only print short text (likely headings)
+-                print(f"  Paragraph {i}: '{text}'")
+-    
+-    for child in list(body):
+-        if child.tag == qn('w:p'):
+-            p = Paragraph(child, edited_doc)
+-            text_lower = p.text.lower().strip()
+-            # Match exactly on the section header text
+-            if not start_found and "criteria for the publication search" in text_lower:
+-                print(f"DEBUG: Found criteria section start with text: '{p.text}'")
+-                start_found = True
+-                # Skip the header itself, start collecting from next element
+-                continue
+-        if start_found:
+-            if child.tag == qn('w:p'):
+-                p = Paragraph(child, edited_doc)
+-                text_lower = p.text.lower().strip()
+-                # Look for mapping section header as end marker
+-                if "mappings based on selected references" in text_lower:
+-                    print(f"DEBUG: Found criteria section end with text: '{p.text}'")
+-                    break
+-            # Only append paragraphs that are not empty OR contain page breaks
+-            if child.tag == qn('w:p'):
+-                p = Paragraph(child, edited_doc)
+-                
+-                # Check if this paragraph contains page breaks by looking at XML
+-                has_page_break = False
+-                try:
+-                    for run_element in child.xpath('.//w:br'):
+-                        break_type = run_element.get(qn('w:type'))
+-                        if break_type == 'page':
+-                            has_page_break = True
+-                            break
+-                except Exception:
+-                    pass
+-                
+-                if p.text.strip() or has_page_break:
+-                    elements.append(child)
+-            # Include all tables
+-            elif child.tag == qn('w:tbl'):
+-                elements.append(child)
+-    
+-    print(f"DEBUG: Extracted {len(elements)} elements from criteria section")
+-    
+-    # If no elements found, try a more general search
+-    if len(elements) == 0:
+-        print("DEBUG: No criteria section found with specific patterns, trying general search...")
+-        for i, child in enumerate(list(body)):
+-            if child.tag == qn('w:p'):
+-                p = Paragraph(child, edited_doc)
+-                text_lower = p.text.lower().strip()
+-                if "criteria for" in text_lower:
+-                    print(f"  Found potential criteria header at paragraph {i}: '{p.text[:100]}...'")
+-    
+-    return [deepcopy(el) for el in elements]
++          """Extract the Criteria for Publication Search section from edited document"""
++          if not edited_doc:
++              return []
++          body = edited_doc.element.body
++          elements = []
++          start_found = False
++          for child in list(body):
++              if child.tag == qn('w:p'):
++                  p = Paragraph(child, edited_doc)
++                  text_lower = p.text.lower().strip()
++                  if not start_found and ("criteria for the publication search" in text_lower):
++                      start_found = True
++                      elements.append(child)
++                      continue
++              if start_found:
++                  if child.tag == qn('w:p'):
++                      p = Paragraph(child, edited_doc)
++                      text_lower = p.text.lower().strip()
++                      if "mappings based on selected references" in text_lower:
++                          break
++                  elements.append(child)
++          return [deepcopy(el) for el in elements]
+================================================================================
+
+Function remove_section is identical (modulo self).
+================================================================================
+
+Diff for insert_element_after:
+--- main.py: insert_element_after
++++ notebook.txt: insert_element_after
+@@ -1,45 +1,33 @@
+ def insert_element_after(anchor, element):
+-    """Insert element after anchor, sanitizing relationships"""
+-    try:
+-        new_elem = deepcopy(element)
+-        # Sanitize relationships/hyperlinks copied from another document
+-        def _strip_relationship_ids(node):
+-            # Remove any r:id attributes to avoid broken relationships
+-            # BUT preserve image relationships by skipping certain element types
+-            for el in node.iter():
+-                # Don't strip relationship IDs from inline drawings/images
+-                if 'pict' in el.tag.lower() or 'drawing' in el.tag.lower() or 'inline' in el.tag.lower():
+-                    continue
+-                # Remove relationship id attributes if present
+-                for attr in list(el.attrib.keys()):
+-                    if attr.endswith('}id'):
+-                        del el.attrib[attr]
+-        def _flatten_hyperlinks(node):
+-            # Replace w:hyperlink elements with their children runs to keep text
+-            to_replace = []
+-            for el in list(node.iter()):
+-                if el.tag.endswith('}hyperlink'):
+-                    to_replace.append(el)
+-            for hl in to_replace:
+-                parent = hl.getparent()
+-                if parent is None:
+-                    continue
+-                idx = list(parent).index(hl)
+-                for child in list(hl):
+-                    parent.insert(idx, child)
+-                    idx += 1
+-                parent.remove(hl)
+-        _flatten_hyperlinks(new_elem)
+-        _strip_relationship_ids(new_elem)
+-        anchor._element.addnext(new_elem)
+-        if new_elem.tag == qn('w:p'):
+-            return Paragraph(new_elem, anchor._parent)
+-        elif new_elem.tag == qn('w:tbl'):
+-            from docx.table import Table
+-            return Table(new_elem, anchor._parent)
+-        else:
+-            # Return the new element even if we can't wrap it
+-            return new_elem
+-    except Exception as e:
+-        print(f"Error in insert_element_after: {e}")
+-        return None
++          """Insert element after anchor, sanitizing relationships"""
++          new_elem = deepcopy(element)
++          # Sanitize relationships/hyperlinks copied from another document
++          def _strip_relationship_ids(node):
++              # Remove any r:id attributes to avoid broken relationships
++              for el in node.iter():
++                  # Remove relationship id attributes if present
++                  for attr in list(el.attrib.keys()):
++                      if attr.endswith('}id'):
++                          del el.attrib[attr]
++          def _flatten_hyperlinks(node):
++              # Replace w:hyperlink elements with their children runs to keep text
++              to_replace = []
++              for el in list(node.iter()):
++                  if el.tag.endswith('}hyperlink'):
++                      to_replace.append(el)
++              for hl in to_replace:
++                  parent = hl.getparent()
++                  idx = list(parent).index(hl)
++                  for child in list(hl):
++                      parent.insert(idx, child)
++                      idx += 1
++                  parent.remove(hl)
++          _flatten_hyperlinks(new_elem)
++          _strip_relationship_ids(new_elem)
++          anchor._element.addnext(new_elem)
++          if new_elem.tag == qn('w:p'):
++              return Paragraph(new_elem, anchor._parent)
++          elif new_elem.tag == qn('w:tbl'):
++              return docx.table.Table(new_elem, anchor._parent)
++          else:
++              return None
+================================================================================
+
+Diff for get_short_patent_name_with_suffix:
+--- main.py: get_short_patent_name_with_suffix
++++ notebook.txt: get_short_patent_name_with_suffix
+@@ -1,19 +1,19 @@
+-def get_short_patent_name_with_suffix(self, patent_number):
+-        """Updated to handle non-US patents"""
+-        cleaned = patent_number.replace(',', '').replace(' ', '')
++def get_short_patent_name_with_suffix(patent_number):
++          """Updated to handle non-US patents"""
++          cleaned = patent_number.replace(',', '').replace(' ', '')
+ 
+-        # Check if US patent and remove US prefix
+-        is_us_patent = cleaned.upper().startswith('US')
+-        if is_us_patent:
+-            cleaned = cleaned[2:]
++          # Check if US patent and remove US prefix
++          is_us_patent = cleaned.upper().startswith('US')
++          if is_us_patent:
++              cleaned = cleaned[2:]
+ 
+-        match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
+-        if not match:
+-            digits_only = re.sub(r'\D', '', cleaned)
+-            short_num = digits_only[-3:] if len(digits_only) >= 3 else digits_only
+-            return f"'{short_num} Patent"
++          match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
++          if not match:
++              digits_only = re.sub(r'\D', '', cleaned)
++              short_num = digits_only[-3:] if len(digits_only) >= 3 else digits_only
++              return f"'{short_num} Patent"
+ 
+-        prefix, digits, suffix = match.groups()
+-        short_digits = digits[-3:] if len(digits) >= 3 else digits
++          prefix, digits, suffix = match.groups()
++          short_digits = digits[-3:] if len(digits) >= 3 else digits
+ 
+-        return f"'{short_digits} Patent"
++          return f"'{short_digits} Patent"
+================================================================================
+
+Diff for get_short_patent_name_v2:
+--- main.py: get_short_patent_name_v2
++++ notebook.txt: get_short_patent_name_v2
+@@ -1,20 +1,20 @@
+-def get_short_patent_name_v2(self, patent_number):
+-        """Updated to handle non-US patents"""
+-        cleaned = patent_number.replace(',', '').replace(' ', '')
++def get_short_patent_name_v2(patent_number):
++          """Updated to handle non-US patents"""
++          cleaned = patent_number.replace(',', '').replace(' ', '')
+ 
+-        # Check if US patent and remove US prefix
+-        is_us_patent = cleaned.upper().startswith('US')
+-        if is_us_patent:
+-            cleaned = cleaned[2:]
++          # Check if US patent and remove US prefix
++          is_us_patent = cleaned.upper().startswith('US')
++          if is_us_patent:
++              cleaned = cleaned[2:]
+ 
+-        match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
++          match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
+ 
+-        if not match:
+-            digits_only = re.sub(r'\D', '', cleaned)
+-            short_num = digits_only[-3:] if len(digits_only) >= 3 else digits_only
+-            return f"'{short_num}"
++          if not match:
++              digits_only = re.sub(r'\D', '', cleaned)
++              short_num = digits_only[-3:] if len(digits_only) >= 3 else digits_only
++              return f"'{short_num}"
+ 
+-        prefix, digits, suffix = match.groups()
+-        short_digits = digits[-3:] if len(digits) >= 3 else digits
++          prefix, digits, suffix = match.groups()
++          short_digits = digits[-3:] if len(digits) >= 3 else digits
+ 
+-        return f"'{short_digits}"
++          return f"'{short_digits}"
+================================================================================
+
+Diff for format_patent_display:
+--- main.py: format_patent_display
++++ notebook.txt: format_patent_display
+@@ -1,27 +1,27 @@
+-def format_patent_display(self, patent_number, include_prefix=True):
+-        """
+-        Format patent number for display based on country code
+-        - US patents: "U.S. Patent No. 10,123,456"
+-        - Non-US patents: "CN12345678A" (NO prefix, just raw number)
+-        """
+-        if pd.isna(patent_number) or not patent_number:
+-            return ""
++def format_patent_display(patent_number, include_prefix=True):
++          """
++          Format patent number for display based on country code
++          - US patents: "U.S. Patent No. 10,123,456"
++          - Non-US patents: "CN12345678A" (NO prefix, just raw number)
++          """
++          if pd.isna(patent_number) or not patent_number:
++              return ""
+ 
+-        patent_str = str(patent_number).strip()
++          patent_str = str(patent_number).strip()
+ 
+-        # Check if it's a US patent
+-        if patent_str.upper().startswith("US"):
+-            core = patent_str[2:]  # Remove "US" prefix
+-            # Remove any suffix (A1, B2, etc.) for display
+-            match = re.match(r'(\d+)', core)
+-            if match:
+-                digits = match.group(1)
+-                formatted = self.format_number_with_commas(digits)
+-                if include_prefix:
+-                    return f"U.S. Patent No. {formatted}"
+-                else:
+-                    return formatted
+-            return patent_str
+-        else:
+-            # Non-US patent - return JUST the publication number, NO prefix
+-            return patent_str
++          # Check if it's a US patent
++          if patent_str.upper().startswith("US"):
++              core = patent_str[2:]  # Remove "US" prefix
++              # Remove any suffix (A1, B2, etc.) for display
++              match = re.match(r'(\d+)', core)
++              if match:
++                  digits = match.group(1)
++                  formatted = format_number_with_commas(digits)
++                  if include_prefix:
++                      return f"U.S. Patent No. {formatted}"
++                  else:
++                      return formatted
++              return patent_str
++          else:
++              # Non-US patent - return JUST the publication number, NO prefix
++              return patent_str
+================================================================================
+
+Diff for extract_patent_number:
+--- main.py: extract_patent_number
++++ notebook.txt: extract_patent_number
+@@ -1,23 +1,21 @@
+-def extract_patent_number(self, cell_value):
+-        """
+-        Extract patent number from cell value that may contain extra text.
+-        Handles various patent number formats including US patents with optional suffixes.
+-        """
+-        if pd.isna(cell_value):
+-            return ""
++def extract_patent_number(cell_value):
++          """Extract patent number from cell value that may contain extra text."""
++          if pd.isna(cell_value):
++              return ""
+ 
+-        cell_str = str(cell_value).strip()
++          cell_str = str(cell_value).strip()
+ 
+-        # Pattern to match US patent numbers with optional suffix
+-        pattern = r'(US\d{7,11}(?:[A-Z]\d{1,2})?)'
+-        match = re.search(pattern, cell_str, re.IGNORECASE)
+-        if match:
+-            return match.group(1).upper()
++          # Pattern to match US patent numbers with optional suffix
++          pattern = r'(US\d{7,11}(?:[A-Z]\d{1,2})?)'
++          match = re.search(pattern, cell_str, re.IGNORECASE)
++          if match:
++              return match.group(1).upper()
+ 
+-        # Fallback for other country codes
+-        pattern_generic = r'([A-Z]{2}\d{7,}(?:[A-Z]\d{1,2})?)'
+-        match_generic = re.search(pattern_generic, cell_str, re.IGNORECASE)
+-        if match_generic:
+-            return match_generic.group(1).upper()
++          # Fallback for other country codes
++          pattern_generic = r'([A-Z]{2}\d{7,}(?:[A-Z]\d{1,2})?)'
++          match_generic = re.search(pattern_generic, cell_str, re.IGNORECASE)
++          if match_generic:
++              return match_generic.group(1).upper()
+ 
+-        return cell_str
++          return cell_str
++          #UP TO HERE
+================================================================================
+
+Diff for parse_claim_numbers:
+--- main.py: parse_claim_numbers
++++ notebook.txt: parse_claim_numbers
+@@ -1,40 +1,41 @@
+-def parse_claim_numbers(self, claim_input, patent_number):
+-        """
+-        Parse claim numbers from various input formats:
+-        - "1-30" -> [1, 2, 3, ..., 30]
+-        - "All" or "all" -> fetch all claims from Google Patents
+-        - "1, 5, 10" -> [1, 5, 10]
+-        - "1-5, 10, 15-20" -> [1, 2, 3, 4, 5, 10, 15, 16, 17, 18, 19, 20]
+-        """
+-        if pd.isna(claim_input):
+-            return []
++def parse_claim_numbers(claim_input, patent_number):
++          """
++          Parse claim numbers from various input formats:
++          - "1-30" -> [1, 2, 3, ..., 30]
++          - "All" or "all" -> fetch all claims from Google Patents
++          - "1, 5, 10" -> [1, 5, 10]
++          - "1-5, 10, 15-20" -> [1, 2, 3, 4, 5, 10, 15, 16, 17, 18, 19, 20]
++          """
++          if pd.isna(claim_input):
++              return []
+ 
+-        claim_str = str(claim_input).strip().upper()
++          claim_str = str(claim_input).strip().upper()
+ 
+-        # Handle "All" case
+-        if claim_str == "ALL":
+-            return self.get_all_claim_numbers_from_google(patent_number)
++          # Handle "All" case
++          if claim_str == "ALL":
++              return get_all_claim_numbers_from_google(patent_number)
+ 
+-        claim_numbers = []
+-        parts = [part.strip() for part in claim_str.split(',')]
++          claim_numbers = []
++          parts = [part.strip() for part in claim_str.split(',')]
+ 
+-        for part in parts:
+-            if '-' in part:
+-                range_parts = part.split('-')
+-                if len(range_parts) == 2:
+-                    try:
+-                        start = int(range_parts[0].strip())
+-                        end = int(range_parts[1].strip())
+-                        claim_numbers.extend(range(start, end + 1))
+-                    except ValueError:
+-                        continue
+-            else:
+-                try:
+-                    num_match = re.search(r'\d+', part)
+-                    if num_match:
+-                        claim_numbers.append(int(num_match.group()))
+-                except ValueError:
+-                    continue
++          for part in parts:
++              if '-' in part:
++                  range_parts = part.split('-')
++                  if len(range_parts) == 2:
++                      try:
++                          start = int(range_parts[0].strip())
++                          end = int(range_parts[1].strip())
++                          claim_numbers.extend(range(start, end + 1))
++                      except ValueError:
++                          continue
++              else:
++                  try:
++                      num_match = re.search(r'\d+', part)
++                      if num_match:
++                          claim_numbers.append(int(num_match.group()))
++                  except ValueError:
++                      continue
+ 
+-        claim_numbers = sorted(list(set(claim_numbers)))
+-        return [str(num) for num in claim_numbers]
++          claim_numbers = sorted(list(set(claim_numbers)))
++          return [str(num) for num in claim_numbers]
++
+================================================================================
+
+Diff for get_all_claim_numbers_from_google:
+--- main.py: get_all_claim_numbers_from_google
++++ notebook.txt: get_all_claim_numbers_from_google
+@@ -1,25 +1,25 @@
+-def get_all_claim_numbers_from_google(self, patent_number):
+-        """Fetch all claim numbers from Google Patents"""
+-        try:
+-            url = f"https://patents.google.com/patent/{patent_number}/en"
+-            response = requests.get(url, timeout=10)
+-            if response.status_code != 200:
+-                return []
++def get_all_claim_numbers_from_google(patent_number):
++          """Fetch all claim numbers from Google Patents"""
++          try:
++              url = f"https://patents.google.com/patent/{patent_number}/en"
++              response = requests.get(url, timeout=10)
++              if response.status_code != 200:
++                  return []
+ 
+-            soup = BeautifulSoup(response.content, "html.parser")
+-            claims_div = soup.find("section", itemprop="claims")
+-            if not claims_div:
+-                return []
++              soup = BeautifulSoup(response.content, "html.parser")
++              claims_div = soup.find("section", itemprop="claims")
++              if not claims_div:
++                  return []
+ 
+-            claims_text = claims_div.get_text(separator="\n")
+-            claim_lines = claims_text.strip().split("\n")
++              claims_text = claims_div.get_text(separator="\n")
++              claim_lines = claims_text.strip().split("\n")
+ 
+-            claim_numbers = []
+-            for line in claim_lines:
+-                match = re.match(r'^(\d+)\.', line.strip())
+-                if match:
+-                    claim_numbers.append(match.group(1))
++              claim_numbers = []
++              for line in claim_lines:
++                  match = re.match(r'^(\d+)\.', line.strip())
++                  if match:
++                      claim_numbers.append(match.group(1))
+ 
+-            return claim_numbers
+-        except Exception:
+-            return []
++              return claim_numbers
++          except Exception:
++              return []
+================================================================================
+
+Diff for format_claims_as_ranges:
+--- main.py: format_claims_as_ranges
++++ notebook.txt: format_claims_as_ranges
+@@ -1,49 +1,49 @@
+-def format_claims_as_ranges(self, claim_numbers_list):
+-        """
+-        Convert list of claim numbers to range format.
+-        Example: [1,2,3,5,6,10] -> "1-3, 5, 6, and 10"
+-        Example: [1,2,3,4,5] -> "1-5"
+-        """
+-        if not claim_numbers_list:
+-            return ""
++def format_claims_as_ranges(claim_numbers_list):
++          """
++          Convert list of claim numbers to range format.
++          Example: [1,2,3,5,6,10] -> "1-3, 5, 6, and 10"
++          Example: [1,2,3,4,5] -> "1-5"
++          """
++          if not claim_numbers_list:
++              return ""
+ 
+-        # Convert to integers and sort
+-        nums = sorted([int(c) for c in claim_numbers_list])
++          # Convert to integers and sort
++          nums = sorted([int(c) for c in claim_numbers_list])
+ 
+-        if len(nums) == 1:
+-            return str(nums[0])
++          if len(nums) == 1:
++              return str(nums[0])
+ 
+-        ranges = []
+-        start = nums[0]
+-        end = nums[0]
++          ranges = []
++          start = nums[0]
++          end = nums[0]
+ 
+-        for i in range(1, len(nums)):
+-            if nums[i] == end + 1:
+-                end = nums[i]
+-            else:
+-                if start == end:
+-                    ranges.append(str(start))
+-                elif end == start + 1:
+-                    ranges.append(str(start))
+-                    ranges.append(str(end))
+-                else:
+-                    ranges.append(f"{start}-{end}")
+-                start = nums[i]
+-                end = nums[i]
++          for i in range(1, len(nums)):
++              if nums[i] == end + 1:
++                  end = nums[i]
++              else:
++                  if start == end:
++                      ranges.append(str(start))
++                  elif end == start + 1:
++                      ranges.append(str(start))
++                      ranges.append(str(end))
++                  else:
++                      ranges.append(f"{start}-{end}")
++                  start = nums[i]
++                  end = nums[i]
+ 
+-        # Handle last range
+-        if start == end:
+-            ranges.append(str(start))
+-        elif end == start + 1:
+-            ranges.append(str(start))
+-            ranges.append(str(end))
+-        else:
+-            ranges.append(f"{start}-{end}")
++          # Handle last range
++          if start == end:
++              ranges.append(str(start))
++          elif end == start + 1:
++              ranges.append(str(start))
++              ranges.append(str(end))
++          else:
++              ranges.append(f"{start}-{end}")
+ 
+-        # Format with commas and "and"
+-        if len(ranges) == 1:
+-            return ranges[0]
+-        elif len(ranges) == 2:
+-            return f"{ranges[0]} and {ranges[1]}"
+-        else:
+-            return ", ".join(ranges[:-1]) + f", and {ranges[-1]}"
++          # Format with commas and "and"
++          if len(ranges) == 1:
++              return ranges[0]
++          elif len(ranges) == 2:
++              return f"{ranges[0]} and {ranges[1]}"
++          else:
++              return ", ".join(ranges[:-1]) + f", and {ranges[-1]}"
+================================================================================
+
+Diff for format_date:
+--- main.py: format_date
++++ notebook.txt: format_date
+@@ -1,89 +1,41 @@
+-def format_date(self, row, col):
+-        """
+-        Feb10: Return the date as Excel displays it, using the cell's number_format
+-        when possible. row/col are 0-based indices into self.df (same as df.iloc).
+-        Falls back to legacy string-based handling when openpyxl context is absent.
+-        """
+-        # Primary path: use openpyxl worksheet if available
+-        if getattr(self, "ws", None) is not None and from_excel is not None:
+-            try:
+-                cell = self.ws.cell(row=row + 1, column=col + 1)  # openpyxl is 1-based
+-                v = cell.value
+-                fmt = (cell.number_format or "").lower()
++def format_date(row, col):
++          """
++          Return the date exactly as Excel *displays* it (using number_format).
++          Works even if Excel stores it as a real date but shows 'MMMM YYYY' etc.
++          row/col are 0-based dataframe coordinates (same as df.iloc).
++          """
++          cell = ws.cell(row=row + 1, column=col + 1)  # openpyxl is 1-based
++          v = cell.value
++          fmt = (cell.number_format or "").lower()
+ 
+-                if v in (None, ""):
+-                    return ""
++          if v in (None, ""):
++              return ""
+ 
+-                # Excel serial number -> datetime
+-                if isinstance(v, (int, float)):
+-                    try:
+-                        v = from_excel(v)
+-                    except Exception:
+-                        return str(v)
++          # Excel serial number -> datetime
++          if isinstance(v, (int, float)):
++              try:
++                  v = from_excel(v)
++              except Exception:
++                  return str(v)
+ 
+-                from datetime import datetime as _dt
+-                if isinstance(v, _dt):
+-                    # Month + Year (no day), e.g. "January 2014"
+-                    if ("mmmm" in fmt or "mmm" in fmt) and "yyyy" in fmt and "d" not in fmt:
+-                        return v.strftime("%B %Y") if "mmmm" in fmt else v.strftime("%b %Y")
+-                    # Year-only
+-                    if "yyyy" in fmt and "m" not in fmt and "d" not in fmt:
+-                        return v.strftime("%Y")
+-                    # Default: Day Month Year without leading zero
+-                    out = v.strftime("%d %B %Y")
+-                    return out[1:] if out.startswith("0") else out
++          # If it's a datetime-like value
++          if isinstance(v, datetime):
++              # December 1994 style (no day)
++              if ("mmmm" in fmt or "mmm" in fmt) and "yyyy" in fmt and "d" not in fmt:
++                  return v.strftime("%B %Y") if "mmmm" in fmt else v.strftime("%b %Y")
+ 
+-                # If Excel stored it as text already, return text (strip leading day zero if present)
+-                s = str(v).strip()
+-                if s.lower() == "nan":
+-                    return ""
+-                if re.match(r"^0\d\s", s):
+-                    return s[1:]
+-                return s
+-            except Exception:
+-                # Fall through to legacy behavior below
+-                pass
++              # Year-only
++              if "yyyy" in fmt and "m" not in fmt and "d" not in fmt:
++                  return v.strftime("%Y")
+ 
+-        # Fallback: legacy behavior using raw value from dataframe (pre-Feb10 appV6 logic)
+-        try:
+-            date_val = self.df.iloc[row, col]
+-        except Exception:
+-            return ""
++              # Default: Day Month Year (no leading zero)
++              out = v.strftime("%d %B %Y")
++              return out[1:] if out.startswith("0") else out
+ 
+-        if pd.isna(date_val):
+-            return ""
+-
+-        date_str = str(date_val).strip()
+-        if date_str.lower() == "nan" or date_str == "":
+-            return ""
+-
+-        # If already in textual full-date form like "13 June 2008", normalize leading zero
+-        if re.match(r"^\d{1,2}\s+[A-Za-z]+\s+\d{4}$", date_str):
+-            return date_str.lstrip("0")
+-
+-        # Preserve partial dates exactly (Month YYYY or YYYY)
+-        if re.match(r"^[A-Za-z]+\s+\d{4}$", date_str) or re.match(r"^\d{4}$", date_str):
+-            return date_str
+-
+-        # If not a pandas Timestamp, attempt to parse string dates (e.g., "2008-06-13 00:00:00")
+-        if not isinstance(date_val, pd.Timestamp):
+-            parsed = pd.to_datetime(date_str, errors="coerce")
+-            if isinstance(parsed, pd.Timestamp) and not pd.isna(parsed):
+-                try:
+-                    return parsed.strftime("%-d %B %Y").strip()
+-                except Exception:
+-                    out = parsed.strftime("%d %B %Y").strip()
+-                    return out[1:] if out and out[0] == "0" else out
+-            # Fallback for unparsed text: strip leading zero day if present
+-            if re.match(r"^0\d\s", date_str):
+-                return date_str[1:]
+-            return date_str
+-
+-        # Timestamp case: format as "Day Month Year" without leading zero
+-        try:
+-            formatted = date_val.strftime("%-d %B %Y").strip()
+-        except Exception:
+-            formatted = date_val.strftime("%d %B %Y").strip()
+-            if formatted and formatted[0] == "0":
+-                formatted = formatted[1:]
+-        return formatted
++          # If Excel stored it as text already, return text (strip leading day zero if any)
++          s = str(v).strip()
++          if s.lower() == "nan":
++              return ""
++          if re.match(r"^0\d\s", s):
++              return s[1:]
++          return s
+================================================================================
+
+Diff for isUSPatent:
+--- main.py: isUSPatent
++++ notebook.txt: isUSPatent
+@@ -1,19 +1,19 @@
+-def isUSPatent(self, ref):
+-        """Updated to properly format both US and non-US patents"""
+-        if ref.PublicationNumber.startswith("US"):
+-            # US Patent logic (existing)
+-            name = ref.PublicationNumber[2:]
+-            name = re.sub(r'[^\d]', '', name)
+-            if len(name) >= 11 and name[:4].isdigit():
+-                year = name[:4]
+-                pub_seq = name[4:11]
+-                ref.PublicationName = f"{year}/{pub_seq}"
+-            else:
+-                try:
+-                    number = int(name.lstrip("0"))
+-                    ref.PublicationName = "{:,}".format(number)
+-                except:
+-                    ref.PublicationName = name
+-        else:
+-            # Non-US Patent - keep as-is
+-            ref.PublicationName = ref.PublicationNumber
++def isUSPatent(ref):
++          """Updated to properly format both US and non-US patents"""
++          if ref.PublicationNumber.startswith("US"):
++              # US Patent logic (existing)
++              name = ref.PublicationNumber[2:]
++              name = re.sub(r'[^\d]', '', name)
++              if len(name) >= 11 and name[:4].isdigit():
++                  year = name[:4]
++                  pub_seq = name[4:11]
++                  ref.PublicationName = f"{year}/{pub_seq}"
++              else:
++                  try:
++                      number = int(name.lstrip("0"))
++                      ref.PublicationName = "{:,}".format(number)
++                  except:
++                      ref.PublicationName = name
++          else:
++              # Non-US Patent - keep as-is
++              ref.PublicationName = ref.PublicationNumber
+================================================================================
+
+Diff for fetch_abstract:
+--- main.py: fetch_abstract
++++ notebook.txt: fetch_abstract
+@@ -1,14 +1,13 @@
+-def fetch_abstract(self, publication_number):
+-        url = f"https://patents.google.com/patent/{publication_number}/en"
+-        try:
+-            response = requests.get(url, timeout=10)
+-            if response.status_code != 200:
+-                return "Abstract not found."
+-            soup = BeautifulSoup(response.content, "html.parser")
+-            abstract_tag = soup.find("meta", {"name": "DC.description"})
+-            if abstract_tag:
+-                return abstract_tag.get("content", "Abstract not found.")
+-            return "Abstract not found."
+-        except Exception as e:
+-            self.log(f"Error fetching abstract: {str(e)}")
+-            return "Abstract fetch error."
++def fetch_abstract(publication_number):
++          url = f"https://patents.google.com/patent/{publication_number}/en"
++          try:
++              response = requests.get(url, timeout=10)
++              if response.status_code != 200:
++                  return "Abstract not found."
++              soup = BeautifulSoup(response.content, "html.parser")
++              abstract_tag = soup.find("meta", {"name": "DC.description"})
++              if abstract_tag:
++                  return abstract_tag.get("content", "Abstract not found.")
++              return "Abstract not found."
++          except Exception:
++              return "Abstract fetch error."
+================================================================================
+
+Diff for extract_claim_fragments_from_excel:
+--- main.py: extract_claim_fragments_from_excel
++++ notebook.txt: extract_claim_fragments_from_excel
+@@ -1,30 +1,24 @@
+-def extract_claim_fragments_from_excel(self, df):
+-        """
+-        Feb10: Extract claim fragments starting from any recognized Expert/Reviewer Comments row.
+-        Supports multiple header labels instead of only 'Expert Comments'.
+-        """
+-        claim_parts = []
+-        try:
+-            expert_comments_variations = ['Expert Comments', 'Expert/Reviewer Comments', 'Reviewer Comments']
+-            claim_start_idx = None
++def extract_claim_fragments_from_excel(df):
++          claim_parts = []
+ 
+-            for variation in expert_comments_variations:
+-                try:
+-                    claim_start_idx = df[df[0] == variation].index[0] + 1
+-                    break
+-                except (IndexError, KeyError):
+-                    continue
++          # Look for any of the expert comments variations
++          expert_comments_variations = ['Expert Comments', 'Expert/Reviewer Comments', 'Reviewer Comments']
++          claim_start_idx = None
+ 
+-            if claim_start_idx is None:
+-                self.log("Error: No Expert/Reviewer Comments row found in Excel file.")
+-                return []
++          for variation in expert_comments_variations:
++              try:
++                  claim_start_idx = df[df[0] == variation].index[0] + 1
++                  break
++              except (IndexError, KeyError):
++                  continue
+ 
+-            while claim_start_idx < len(df):
+-                cell_value = df.iloc[claim_start_idx, 0]
+-                if pd.isna(cell_value) or str(cell_value).strip() == "":
+-                    break
+-                claim_parts.append(str(cell_value).strip())
+-                claim_start_idx += 1
+-        except Exception as e:
+-            self.log(f"Error extracting claim fragments from Excel: {str(e)}")
+-        return claim_parts
++          if claim_start_idx is None:
++              return []
++
++          while claim_start_idx < len(df):
++              cell_value = df.iloc[claim_start_idx, 0]
++              if pd.isna(cell_value) or str(cell_value).strip() == "":
++                  break
++              claim_parts.append(str(cell_value).strip())
++              claim_start_idx += 1
++          return claim_parts
+================================================================================
+
+Diff for format_number_with_commas:
+--- main.py: format_number_with_commas
++++ notebook.txt: format_number_with_commas
+@@ -1,7 +1,8 @@
+-def format_number_with_commas(self, number_str):
+-        match = re.match(r"\d+", number_str)
+-        if match:
+-            digits = match.group()
+-            return "{:,}".format(int(digits))
+-        else:
+-            return number_str
++def format_number_with_commas(number_str):
++          # Extract only the digits at the start
++          match = re.match(r"\d+", number_str)
++          if match:
++              digits = match.group()
++              return "{:,}".format(int(digits))
++          else:
++              return number_str
+================================================================================
+
+Diff for get_claim_from_google_patents:
+--- main.py: get_claim_from_google_patents
++++ notebook.txt: get_claim_from_google_patents
+@@ -1,33 +1,30 @@
+-def get_claim_from_google_patents(self, patent_number, claim_num):
+-        try:
+-            url = f"https://patents.google.com/patent/{patent_number}/en"
+-            response = requests.get(url, timeout=10)
+-            if response.status_code != 200:
+-                self.log(f"Failed to fetch claim {claim_num}: HTTP {response.status_code}")
+-                return None
+-            soup = BeautifulSoup(response.content, "html.parser")
+-            claims_div = soup.find("section", itemprop="claims")
+-            if not claims_div:
+-                self.log(f"No claims section found for claim {claim_num}")
+-                return None
+-            claims_text = claims_div.get_text(separator="\n")
+-            claim_lines = claims_text.strip().split("\n")
+-            claim_full_text = ""
+-            collect = False
+-            for line in claim_lines:
+-                if re.match(rf"^{claim_num}\.", line.strip()):
+-                    collect = True
+-                elif re.match(r"^\d+\.", line.strip()) and not line.strip().startswith(f"{claim_num}."):
+-                    if collect:
+-                        break
+-                if collect:
+-                    processed_line = re.sub(
+-                        r'\bUS(\d{7,})\b',
+-                        lambda m: self.format_number_with_commas(m.group(1)),
+-                        line.strip()
+-                    )
+-                    claim_full_text += processed_line + "\n"
+-            return claim_full_text.strip()
+-        except Exception as e:
+-            self.log(f"Error fetching claim {claim_num}: {str(e)}")
+-            return None
++def get_claim_from_google_patents(patent_number, claim_num):
++          try:
++              url = f"https://patents.google.com/patent/{patent_number}/en"
++              response = requests.get(url, timeout=10)
++              if response.status_code != 200:
++                  return None
++              soup = BeautifulSoup(response.content, "html.parser")
++              claims_div = soup.find("section", itemprop="claims")
++              if not claims_div:
++                  return None
++              claims_text = claims_div.get_text(separator="\n")
++              claim_lines = claims_text.strip().split("\n")
++              claim_full_text = ""
++              collect = False
++              for line in claim_lines:
++                  if re.match(rf"^{claim_num}\.", line.strip()):
++                      collect = True
++                  elif re.match(r"^\d+\.", line.strip()) and not line.strip().startswith(f"{claim_num}."):
++                      if collect:
++                          break
++                  if collect:
++                      processed_line = re.sub(
++                          r'\bUS(\d{7,})\b',
++                          lambda m: format_number_with_commas(m.group(1)),
++                          line.strip()
++                      )
++                      claim_full_text += processed_line + "\n"
++              return claim_full_text.strip()
++          except Exception:
++              return None
+================================================================================
+
+Diff for clone_row_after:
+--- main.py: clone_row_after
++++ notebook.txt: clone_row_after
+@@ -1,10 +1,6 @@
+-def clone_row_after(self, table, template_row):
+-        try:
+-            tbl = table._tbl
+-            tr = template_row._tr
+-            new_tr = deepcopy(tr)
+-            tbl.append(new_tr)
+-            return table.rows[-1]
+-        except Exception as e:
+-            self.log(f"Error cloning table row: {str(e)}")
+-            raise
++def clone_row_after(table, template_row):
++          tbl = table._tbl
++          tr = template_row._tr
++          new_tr = deepcopy(tr)
++          tbl.append(new_tr)
++          return table.rows[-1]
+================================================================================
+
+Diff for clear_cell:
+--- main.py: clear_cell
++++ notebook.txt: clear_cell
+@@ -1,9 +1,6 @@
+-def clear_cell(self, cell):
+-        try:
+-            for p in cell.paragraphs:
+-                for r in p.runs:
+-                    r.text = ""
+-                if len(p.runs) == 0:
+-                    p.add_run("")
+-        except Exception as e:
+-            self.log(f"Error clearing cell: {str(e)}")
++def clear_cell(cell):
++          for p in cell.paragraphs:
++              for r in p.runs:
++                  r.text = ""
++              if len(p.runs) == 0:
++                  p.add_run("")
+================================================================================
+
+Diff for set_cell_text:
+--- main.py: set_cell_text
++++ notebook.txt: set_cell_text
+@@ -1,13 +1,10 @@
+-def set_cell_text(self, cell, text, bold=False, size=10, color_rgb=None):
+-        try:
+-            self.clear_cell(cell)
+-            p = cell.paragraphs[0]
+-            run = p.runs[0]
+-            run.text = text
+-            run.font.name = 'Inter'
+-            run.font.size = Pt(size)
+-            run.bold = bold
+-            if color_rgb:
+-                run.font.color.rgb = color_rgb
+-        except Exception as e:
+-            self.log(f"Error setting cell text: {str(e)}")
++def set_cell_text(cell, text, bold=False, size=10, color_rgb=None):
++          clear_cell(cell)
++          p = cell.paragraphs[0]
++          run = p.runs[0]
++          run.text = text
++          run.font.name = 'Inter'
++          run.font.size = Pt(size)
++          run.bold = bold
++          if color_rgb:
++              run.font.color.rgb = color_rgb
+================================================================================
+
+Diff for add_hyperlink_to_paragraph:
+--- main.py: add_hyperlink_to_paragraph
++++ notebook.txt: add_hyperlink_to_paragraph
+@@ -1,32 +1,31 @@
+-def add_hyperlink_to_paragraph(self, doc, paragraph, url, text, size=10, color_hex="0000FF"):
+-        try:
+-            part = doc.part
+-            r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+-            hyperlink = OxmlElement('w:hyperlink')
+-            hyperlink.set(qn('r:id'), r_id)
+-            run_element = OxmlElement('w:r')
+-            run_props = OxmlElement('w:rPr')
+-            font_element = OxmlElement('w:rFonts')
+-            font_element.set(qn('w:ascii'), 'Inter')
+-            font_element.set(qn('w:hAnsi'), 'Inter')
+-            run_props.append(font_element)
+-            size_element = OxmlElement('w:sz')
+-            size_element.set(qn('w:val'), str(size * 2))
+-            run_props.append(size_element)
+-            size_cs_element = OxmlElement('w:szCs')
+-            size_cs_element.set(qn('w:val'), str(size * 2))
+-            run_props.append(size_cs_element)
+-            color_element = OxmlElement('w:color')
+-            color_element.set(qn('w:val'), color_hex)
+-            run_props.append(color_element)
+-            underline_element = OxmlElement('w:u')
+-            underline_element.set(qn('w:val'), 'single')
+-            run_props.append(underline_element)
+-            run_element.append(run_props)
+-            text_element = OxmlElement('w:t')
+-            text_element.text = text
+-            run_element.append(text_element)
+-            hyperlink.append(run_element)
+-            paragraph._p.append(hyperlink)
+-        except Exception as e:
+-            self.log(f"Error adding hyperlink to paragraph: {str(e)}")
++def add_hyperlink_to_paragraph(doc, paragraph, url, text, size=10):
++          part = doc.part
++          r_id = part.relate_to(url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
++          hyperlink = OxmlElement('w:hyperlink')
++          hyperlink.set(qn('r:id'), r_id)
++          hyperlink.set(qn('w:anchor'), '')  # Add empty anchor attribute for validity
++          run_element = OxmlElement('w:r')
++          run_props = OxmlElement('w:rPr')
++          font_element = OxmlElement('w:rFonts')
++          font_element.set(qn('w:ascii'), 'Inter')
++          font_element.set(qn('w:hAnsi'), 'Inter')
++          font_element.set(qn('w:cs'), 'Inter')
++          run_props.append(font_element)
++          size_element = OxmlElement('w:sz')
++          size_element.set(qn('w:val'), str(size * 2))  # Word uses half-points, so multiply by 2
++          run_props.append(size_element)
++          size_cs_element = OxmlElement('w:szCs')
++          size_cs_element.set(qn('w:val'), str(size * 2))
++          run_props.append(size_cs_element)
++          color_element = OxmlElement('w:color')
++          color_element.set(qn('w:val'), '0070C0') #March2
++          run_props.append(color_element)
++          underline_element = OxmlElement('w:u')
++          underline_element.set(qn('w:val'), 'single')
++          run_props.append(underline_element)
++          run_element.append(run_props)
++          text_element = OxmlElement('w:t')
++          text_element.text = text
++          run_element.append(text_element)
++          hyperlink.append(run_element)
++          paragraph._p.append(hyperlink)
+================================================================================
+
+Diff for simple_replace_section:
+--- main.py: simple_replace_section
++++ notebook.txt: simple_replace_section
+@@ -1,129 +1,121 @@
+-def simple_replace_section(self, src_doc, dst_doc, start_heading_text, end_heading_text):
+-        """
+-        Simple section replacement that just copies content without complex boundary detection.
+-        Matches colab implementation (lines 2399-2485).
+-        """
+-        try:
+-            self.log(f"    🔍 Looking for '{start_heading_text}' in source document...")
+-            start_p = self.find_paragraph_contains(src_doc, start_heading_text)
+-            if not start_p:
+-                self.log(f"    ❌ Could not find '{start_heading_text}' in source document")
+-                return False
++def simple_replace_section(src_doc, dst_doc, start_heading_text, end_heading_text):
++          """Simple section replacement that just copies content without complex boundary detection"""
++          print(f"    🔍 Looking for '{start_heading_text}' in source document...")
++          start_p = find_paragraph_contains(src_doc, start_heading_text)
++          if not start_p:
++              print(f"    ❌ Could not find '{start_heading_text}' in source document")
++              return False
+ 
+-            self.log(f"    ✅ Found '{start_heading_text}' in source document")
++          print(f"    ✅ Found '{start_heading_text}' in source document")
+ 
+-            # Find end boundary
+-            end_p = None
+-            if end_heading_text:
+-                elems = list(src_doc.element.body)
+-                start_idx = elems.index(start_p._p)
++          # Find end boundary
++          end_p = None
++          if end_heading_text:
++              elems = list(src_doc.element.body)
++              start_idx = elems.index(start_p._p)
+ 
+-                # Look for end_heading_text after the start position
+-                for i in range(start_idx + 1, len(elems)):
+-                    if elems[i].tag == qn('w:p'):
+-                        p = Paragraph(elems[i], src_doc)
+-                        if end_heading_text.lower() in (p.text or '').lower():
+-                            end_p = p
+-                            break
++              # Look for end_heading_text after the start position
++              for i in range(start_idx + 1, len(elems)):
++                  if elems[i].tag == qn('w:p'):
++                      p = Paragraph(elems[i], src_doc)
++                      if end_heading_text.lower() in (p.text or '').lower():
++                          end_p = p
++                          break
+ 
+-                if not end_p:
+-                    self.log(f"    ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in source document, using end of document")
++              if not end_p:
++                  print(f"    ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in source document, using end of document")
+ 
+-            # Get source content (excluding the heading to avoid duplicates)
+-            elems = list(src_doc.element.body)
+-            start_idx = elems.index(start_p._p)
+-            end_idx = elems.index(end_p._p) if end_p is not None else len(elems)
+-            # Skip the heading paragraph to avoid duplicates
+-            src_slice = elems[start_idx + 1:end_idx]
+-            self.log(f"    📋 Found {len(src_slice)} elements to copy from source (excluding heading)")
++          # Get source content (INCLUDING the heading for sections that might not exist)
++          elems = list(src_doc.element.body)
++          start_idx = elems.index(start_p._p)
++          end_idx = elems.index(end_p._p) if end_p is not None else len(elems)
++          # Include the heading for sections that might not exist in destination
++          src_slice = elems[start_idx:end_idx]
++          print(f"    📋 Found {len(src_slice)} elements to copy from source (including heading)")
+ 
+-            # Find destination section
+-            self.log(f"    🔍 Looking for '{start_heading_text}' in destination document...")
+-            dst_start_p = self.find_paragraph_contains(dst_doc, start_heading_text)
+-            if not dst_start_p:
+-                # If destination start heading doesn't exist, insert before end_heading if possible
+-                self.log(f"    ❌ Could not find '{start_heading_text}' in destination document")
+-                if end_heading_text:
+-                    insert_before = self.find_paragraph_contains(dst_doc, end_heading_text)
+-                    if insert_before:
+-                        self.log(f"    ➕ Inserting new section '{start_heading_text}' before '{end_heading_text}' in destination (including source heading)")
+-                        # Insert the source heading and its content before insert_before
+-                        elems_dst = list(dst_doc.element.body)
+-                        insert_idx = elems_dst.index(insert_before._p)
+-                        # Build slice including heading in source
+-                        full_src_slice = elems[start_idx:end_idx]
+-                        for el in reversed(full_src_slice):
+-                            new_el = deepcopy(el)
+-                            insert_before._p.addprevious(new_el)
+-                        self.log(f"    ✅ Inserted section '{start_heading_text}' into destination")
+-                        return True
+-                return False
++          # Find destination section - if it doesn't exist, insert before the end section
++          print(f"    🔍 Looking for '{start_heading_text}' in destination document...")
++          dst_start_p = find_paragraph_contains(dst_doc, start_heading_text)
+ 
+-            self.log(f"    ✅ Found '{start_heading_text}' in destination document")
++          if not dst_start_p:
++              print(f"    ⚠️  Section '{start_heading_text}' not found in destination - will insert before '{end_heading_text}'")
+ 
+-            # Find end boundary in destination
+-            dst_end_p = None
+-            if end_heading_text:
+-                dst_elems = list(dst_doc.element.body)
+-                dst_start_idx = dst_elems.index(dst_start_p._p)
++              # Find where to insert (before the end_heading_text)
++              insert_before_p = find_paragraph_contains(dst_doc, end_heading_text)
++              if not insert_before_p:
++                  print(f"    ❌ Could not find '{end_heading_text}' in destination document either")
++                  return False
+ 
+-                # Look for end_heading_text after the start position
+-                for i in range(dst_start_idx + 1, len(dst_elems)):
+-                    if dst_elems[i].tag == qn('w:p'):
+-                        p = Paragraph(dst_elems[i], dst_doc)
+-                        if end_heading_text.lower() in (p.text or '').lower():
+-                            dst_end_p = p
+-                            break
++              print(f"    ✅ Found insertion point before '{end_heading_text}'")
+ 
+-                if not dst_end_p:
+-                    # Fallback: find any next major section as boundary to avoid wiping whole doc
+-                    self.log(f"    ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in destination document, searching for next section boundary")
+-                    major_sections = [
+-                        'other related references found',
+-                        'patent-at-issue',
+-                        'criteria for the publication search',
+-                        'mappings based on selected references',
+-                        'disclaimer',
+-                        'appendix'
+-                    ]
+-                    for i in range(dst_start_idx + 1, len(dst_elems)):
+-                        if dst_elems[i].tag == qn('w:p'):
+-                            p = Paragraph(dst_elems[i], dst_doc)
+-                            text_lower = (p.text or '').lower()
+-                            if any(ms in text_lower for ms in major_sections):
+-                                dst_end_p = p
+-                                self.log(f"    ✅ Found boundary at: '{p.text.strip()}'")
+-                                break
+-                    if not dst_end_p:
+-                        self.log(f"    ⚠️  No section boundary found, using end of document")
++              # Insert the entire section (including heading) before the end section
++              print(f"    ➕ Inserting {len(src_slice)} elements into destination")
+ 
+-            # Remove existing content (keep the heading)
+-            dst_elems = list(dst_doc.element.body)
+-            dst_start_idx = dst_elems.index(dst_start_p._p)
+-            dst_end_idx = dst_elems.index(dst_end_p._p) if dst_end_p is not None else len(dst_elems)
++              # Insert elements in reverse order to maintain correct order
++              for i, el in enumerate(reversed(src_slice)):
++                  new_el = deepcopy(el)
++                  insert_before_p._p.addprevious(new_el)
++                  print(f"      Inserted element {i+1}/{len(src_slice)}")
+ 
+-            # Remove elements after the heading
+-            elements_to_remove = dst_end_idx - dst_start_idx - 1
+-            self.log(f"    🗑️  Removing {elements_to_remove} existing elements from destination")
++              print(f"    ✅ Successfully inserted new section '{start_heading_text}'")
++              return True
+ 
+-            # Remove elements in reverse order
+-            for i in range(dst_end_idx - 1, dst_start_idx, -1):
+-                if i < len(dst_elems):
+-                    el = dst_elems[i]
+-                    dst_doc.element.body.remove(el)
++          print(f"    ✅ Found '{start_heading_text}' in destination document")
+ 
+-            # Insert new content after the heading
+-            self.log(f"    ➕ Inserting {len(src_slice)} elements into destination")
++          # Find end boundary in destination
++          dst_end_p = None
++          if end_heading_text:
++              dst_elems = list(dst_doc.element.body)
++              dst_start_idx = dst_elems.index(dst_start_p._p)
+ 
+-            # Insert elements in reverse order to maintain correct order
+-            for i, el in enumerate(reversed(src_slice)):
+-                new_el = deepcopy(el)
+-                dst_start_p._p.addnext(new_el)
+-                if i % 10 == 0:  # Log every 10th element to avoid spam
+-                    self.log(f"      Inserted element {i+1}/{len(src_slice)}")
++              # Look for end_heading_text after the start position
++              for i in range(dst_start_idx + 1, len(dst_elems)):
++                  if dst_elems[i].tag == qn('w:p'):
++                      p = Paragraph(dst_elems[i], dst_doc)
++                      if end_heading_text.lower() in (p.text or '').lower():
++                          dst_end_p = p
++                          break
+ 
+-            self.log(f"    ✅ Successfully replaced section '{start_heading_text}'")
+-            return True
+-        except Exception as e:
+-            self.log(f"    ❌ Error replacing section '{start_heading_text}': {str(e)}")
+-            return False
++              if not dst_end_p:
++                  # If end heading not found, look for ANY major section heading as boundary
++                  print(f"    ⚠️  Could not find '{end_heading_text}' - looking for next section...")
++                  major_sections = ["patent-at-issue", "criteria for", "mappings based", "disclaimer", "appendix"]
++                  for i in range(dst_start_idx + 1, len(dst_elems)):
++                      if dst_elems[i].tag == qn('w:p'):
++                          p = Paragraph(dst_elems[i], dst_doc)
++                          text_lower = (p.text or '').lower()
++                          if any(section in text_lower for section in major_sections):
++                              dst_end_p = p
++                              print(f"    ✅ Found boundary at: '{p.text.strip()}'")
++                              break
++
++                  if not dst_end_p:
++                      print(f"    ⚠️  No section boundary found, using end of document")
++
++          # Remove existing content (keep the heading)
++          dst_elems = list(dst_doc.element.body)
++          dst_start_idx = dst_elems.index(dst_start_p._p)
++          dst_end_idx = dst_elems.index(dst_end_p._p) if dst_end_p is not None else len(dst_elems)
++
++          # Remove elements after the heading
++          elements_to_remove = dst_end_idx - dst_start_idx - 1
++          print(f"    🗑️  Removing {elements_to_remove} existing elements from destination")
++
++          # Remove elements in reverse order
++          for i in range(dst_end_idx - 1, dst_start_idx, -1):
++              if i < len(dst_elems):
++                  el = dst_elems[i]
++                  dst_doc.element.body.remove(el)
++
++          # Insert new content after the heading (skip first element since heading already exists)
++          new_content = src_slice[1:]  # Skip the heading from source
++          print(f"    ➕ Inserting {len(new_content)} elements into destination")
++
++          # Insert elements in reverse order to maintain correct order
++          for i, el in enumerate(reversed(new_content)):
++              new_el = deepcopy(el)
++              dst_start_p._p.addnext(new_el)
++              print(f"      Inserted element {i+1}/{len(new_content)}")
++
++          print(f"    ✅ Successfully replaced section '{start_heading_text}'")
++          return True
+================================================================================
+
+Function fix_document_structure ONLY in notebook.txt:
+def fix_document_structure(doc):
+          """Fix common XML structure issues that cause Word warnings"""
+          try:
+              # Ensure all paragraphs have proper structure
+              for paragraph in doc.paragraphs:
+                  # Ensure paragraph has proper properties
+                  pPr = paragraph._p.get_or_add_pPr()
+
+                  # Ensure all runs have proper font properties
+                  for run in paragraph.runs:
+                      if run._r.rPr is None:
+                          run._r.get_or_add_rPr()
+
+                      # Ensure font properties are complete
+                      rPr = run._r.rPr
+                      if rPr.find(qn('w:rFonts')) is None:
+                          rFonts = OxmlElement('w:rFonts')
+                          rFonts.set(qn('w:ascii'), 'Inter')
+                          rFonts.set(qn('w:hAnsi'), 'Inter')
+                          rFonts.set(qn('w:cs'), 'Inter')
+                          rPr.append(rFonts)
+
+                      if rPr.find(qn('w:sz')) is None:
+                          sz = OxmlElement('w:sz')
+                          sz.set(qn('w:val'), '20')  # 10pt default
+                          rPr.append(sz)
+
+                      if rPr.find(qn('w:szCs')) is None:
+                          szCs = OxmlElement('w:szCs')
+                          szCs.set(qn('w:val'), '20')
+                          rPr.append(szCs)
+
+              # Ensure all table cells have proper structure
+              for table in doc.tables:
+                  for row in table.rows:
+                      for cell in row.cells:
+                          for paragraph in cell.paragraphs:
+                              # Ensure paragraph has proper properties
+                              pPr = paragraph._p.get_or_add_pPr()
+
+                              # Ensure all runs have proper font properties
+                              for run in paragraph.runs:
+                                  if run._r.rPr is None:
+                                      run._r.get_or_add_rPr()
+
+                                  rPr = run._r.rPr
+                                  if rPr.find(qn('w:rFonts')) is None:
+                                      rFonts = OxmlElement('w:rFonts')
+                                      rFonts.set(qn('w:ascii'), 'Inter')
+                                      rFonts.set(qn('w:hAnsi'), 'Inter')
+                                      rFonts.set(qn('w:cs'), 'Inter')
+                                      rPr.append(rFonts)
+
+                                  if rPr.find(qn('w:sz')) is None:
+                                      sz = OxmlElement('w:sz')
+                                      sz.set(qn('w:val'), '20')
+                                      rPr.append(sz)
+
+                                  if rPr.find(qn('w:szCs')) is None:
+                                      szCs = OxmlElement('w:szCs')
+                                      szCs.set(qn('w:val'), '20')
+                                      rPr.append(szCs)
+
+              print("✓ Document structure fixed")
+          except Exception as e:
+              print(f"⚠ Warning: Could not fix document structure: {e}")
+
+================================================================================
+
+Function set_header_font_sizes ONLY in notebook.txt:
+def set_header_font_sizes(doc):
+          """Set specific font sizes for headers"""
+          try:
+              # Define header text and their target font sizes
+              headers = {
+                  "OBJECTIVE": 12,
+                  "PATENT-AT-ISSUE": 12,
+                  "CRITERIA FOR THE PUBLICATION SEARCH": 12,
+                  "MAPPINGS BASED ON SELECTED REFERENCES": 12,
+                  "DISCLAIMER": 12,
+                  "APPENDIX A": 12,
+                  "APPENDIX B": 12,
+                  "Search Strategies": 11
+              }
+
+              # Search through all paragraphs to find headers
+              for paragraph in doc.paragraphs:
+                  text = paragraph.text.strip().upper()
+
+                  # Check if this paragraph contains any of our target headers
+                  for header_text, font_size in headers.items():
+                      if header_text.upper() in text:
+                          # Set font size for all runs in this paragraph
+                          for run in paragraph.runs:
+                              run.font.size = Pt(font_size)
+                          print(f"✓ Set {header_text} header to {font_size}pt")
+                          break
+
+              print("✓ Header font sizes updated")
+          except Exception as e:
+              print(f"⚠ Warning: Could not set header font sizes: {e}")
+
+================================================================================
+
+Diff for ensure_orr_header_and_spacing:
+--- main.py: ensure_orr_header_and_spacing
++++ notebook.txt: ensure_orr_header_and_spacing
+@@ -1,208 +1,322 @@
+-def ensure_orr_header_and_spacing(self, doc):
+-        """
+-        Ensure an ORR header exists immediately before the ORR table, and add
+-        a page break before the Patent-at-Issue heading when it follows the ORR table.
+-        Also normalizes Patent-at-Issue heading formatting.
+-        """
+-        try:
+-            from docx.text.paragraph import Paragraph
+-            from docx.table import Table
+-            from docx.oxml import OxmlElement
+-            from docx.oxml.ns import qn
+-
+-            body = doc.element.body
+-            elems = list(body)
+-
+-            # Locate ORR heading if present
+-            orr_heading_idx = None
+-            for i, el in enumerate(elems):
+-                if el.tag.endswith('p'):
+-                    p = Paragraph(el, doc)
+-                    text = (p.text or '').strip().lower()
+-                    if 'other related references' in text:
+-                        orr_heading_idx = i
+-                        break
+-
+-            # Locate ORR table after heading
+-            orr_table_idx = None
+-            if orr_heading_idx is not None:
+-                for j in range(orr_heading_idx + 1, len(elems)):
+-                    if elems[j].tag.endswith('tbl'):
+-                        orr_table_idx = j
+-                        break
+-
+-            # Fallback: detect ORR table by header texts
+-            if orr_table_idx is None:
+-                for i, el in enumerate(elems):
+-                    if el.tag.endswith('tbl'):
+-                        tbl = Table(el, doc)
+-                        try:
+-                            if len(tbl.rows) > 0 and len(tbl.rows[0].cells) >= 2:
+-                                row_texts = [
+-                                    " ".join((p.text or '') for p in c.paragraphs).strip().lower()
+-                                    for c in tbl.rows[0].cells
+-                                ]
+-                                joined = " | ".join(row_texts)
+-                                if ('references found' in joined) and (
+-                                    'assignee' in joined or 'author/publisher' in joined or 'inventor' in joined
+-                                ):
+-                                    orr_table_idx = i
+-                                    break
+-                        except Exception:
+-                            continue
+-
+-            if orr_table_idx is not None:
+-                # If no ORR heading exists anywhere, insert one immediately before the table
+-                if orr_heading_idx is None:
+-                    has_header = False
+-                    elems = list(body)
+-                    if orr_table_idx - 1 >= 0 and elems[orr_table_idx - 1].tag.endswith('p'):
+-                        prev_p = Paragraph(elems[orr_table_idx - 1], doc)
+-                        if (prev_p.text or '').strip().lower() == 'other related references found':
+-                            has_header = True
+-                    if not has_header:
+-                        new_p = OxmlElement('w:p')
+-                        r = OxmlElement('w:r')
+-                        rPr = OxmlElement('w:rPr')
+-                        rFonts = OxmlElement('w:rFonts')
+-                        rFonts.set(qn('w:ascii'), 'Inter')
+-                        rFonts.set(qn('w:hAnsi'), 'Inter')
+-                        rPr.append(rFonts)
+-                        b = OxmlElement('w:b')
+-                        rPr.append(b)
+-                        sz = OxmlElement('w:sz')
+-                        sz.set(qn('w:val'), '20')  # 10pt
+-                        rPr.append(sz)
+-                        szCs = OxmlElement('w:szCs')
+-                        szCs.set(qn('w:val'), '20')
+-                        rPr.append(szCs)
+-                        color = OxmlElement('w:color')
+-                        color.set(qn('w:val'), '000000')
+-                        rPr.append(color)
+-                        r.append(rPr)
+-                        t = OxmlElement('w:t')
+-                        t.text = 'OTHER RELATED REFERENCES FOUND'
+-                        r.append(t)
+-                        pPr = OxmlElement('w:pPr')
+-                        spacing = OxmlElement('w:spacing')
+-                        spacing.set(qn('w:after'), '160')  # 8pt
+-                        spacing.set(qn('w:line'), '216')   # ~1.08
+-                        spacing.set(qn('w:lineRule'), 'auto')
+-                        pPr.append(spacing)
+-                        new_p.append(pPr)
+-                        new_p.append(r)
+-                        body.insert(orr_table_idx, new_p)
+-
+-                # Add page break before Patent-at-Issue if it immediately follows a table
+-                pat_p = None
+-                pat_idx = None
+-                for j, el in enumerate(list(body)):
+-                    if el.tag.endswith('p'):
+-                        p = Paragraph(el, doc)
+-                        if (p.text or '').strip().lower() == 'patent-at-issue':
+-                            pat_p = p
+-                            pat_idx = j
+-                            break
+-                if pat_p is not None:
+-                    elems2 = list(body)
+-                    prev_is_tbl = (pat_idx - 1 >= 0 and elems2[pat_idx - 1].tag.endswith('tbl'))
+-                    if prev_is_tbl:
+-                        # Insert a separate page-break paragraph BEFORE the heading paragraph
+-                        br = OxmlElement('w:br')
+-                        br.set(qn('w:type'), 'page')
+-                        run_element = OxmlElement('w:r')
+-                        rPr = OxmlElement('w:rPr')
+-                        rFonts = OxmlElement('w:rFonts')
+-                        rFonts.set(qn('w:ascii'), 'Inter')
+-                        rFonts.set(qn('w:hAnsi'), 'Inter')
+-                        rPr.append(rFonts)
+-                        run_element.append(rPr)
+-                        run_element.append(br)
+-                        new_break_p = OxmlElement('w:p')
+-                        new_break_p.append(run_element)
+-                        pat_p._p.addprevious(new_break_p)
+-
+-                    # Normalize PATENT-AT-ISSUE heading formatting with robust style and spacing
+-                    try:
+-                        # Apply Heading 1 (fallbacks included)
+-                        try:
+-                            pat_p.style = 'Heading 1'
+-                        except Exception:
+-                            try:
+-                                pat_p.style = 'Heading1'
+-                            except Exception:
+-                                pass
+-
+-                        # Enforce Heading 1 at XML level (pStyle) and outline level 0
+-                        pPr = pat_p._p.get_or_add_pPr()
+-                        # Remove existing pStyle to avoid duplicates
+-                        for el in list(pPr):
+-                            if el.tag == qn('w:pStyle'):
+-                                pPr.remove(el)
+-                        pStyle = OxmlElement('w:pStyle')
+-                        pStyle.set(qn('w:val'), 'Heading1')
+-                        pPr.append(pStyle)
+-                        # Ensure outline level 0
+-                        for el in list(pPr):
+-                            if el.tag == qn('w:outlineLvl'):
+-                                pPr.remove(el)
+-                        outline = OxmlElement('w:outlineLvl')
+-                        outline.set(qn('w:val'), '0')
+-                        pPr.append(outline)
+-
+-                        # Paragraph spacing
+-                        pf = pat_p.paragraph_format
+-                        pf.line_spacing = 1.0
+-                        pf.space_before = Pt(0)
+-                        pf.space_after = Pt(0)
+-
+-                        # Hard enforce 0pt spacing at XML level and disable auto-spacing
+-                        spacing_el = None
+-                        for el in list(pPr):
+-                            if el.tag == qn('w:spacing'):
+-                                spacing_el = el
+-                                break
+-                        if spacing_el is None:
+-                            spacing_el = OxmlElement('w:spacing')
+-                            pPr.append(spacing_el)
+-                        spacing_el.set(qn('w:before'), '0')
+-                        spacing_el.set(qn('w:after'), '0')
+-                        spacing_el.set(qn('w:beforeAutospacing'), '0')
+-                        spacing_el.set(qn('w:afterAutospacing'), '0')
+-                        spacing_el.set(qn('w:lineRule'), 'auto')
+-
+-                        # Make sure the heading has visible text and correct run formatting
+-                        if not pat_p.runs:
+-                            pat_p.add_run("")
+-                        for r in pat_p.runs:
+-                            if r.text:
+-                                r.text = r.text.upper()
+-                            r.font.bold = True
+-                            r.font.size = Pt(12)
+-                            try:
+-                                r.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
+-                            except Exception:
+-                                pass
+-
+-                        # Normalize the next paragraph's spacing-before to 0 to eliminate visual gap
+-                        nxt_el = pat_p._p.getnext()
+-                        if nxt_el is not None and nxt_el.tag == qn('w:p'):
+-                            from docx.text.paragraph import Paragraph as _Paragraph
+-                            nxt_p = _Paragraph(nxt_el, doc)
+-                            npf = nxt_p.paragraph_format
+-                            npf.space_before = Pt(0)
+-                            pPr_n = nxt_p._p.get_or_add_pPr()
+-                            spacing_n = None
+-                            for el in list(pPr_n):
+-                                if el.tag == qn('w:spacing'):
+-                                    spacing_n = el
+-                                    break
+-                            if spacing_n is None:
+-                                spacing_n = OxmlElement('w:spacing')
+-                                pPr_n.append(spacing_n)
+-                            spacing_n.set(qn('w:before'), '0')
+-                            spacing_n.set(qn('w:beforeAutospacing'), '0')
+-                    except Exception:
+-                        pass
+-        except Exception:
+-            pass
++def ensure_orr_header_and_spacing(doc):
++          try:
++              from docx.text.paragraph import Paragraph
++              from docx.table import Table
++              from docx.oxml import OxmlElement
++              from docx.oxml.ns import qn
++
++              body = doc.element.body
++              elems = list(body)
++
++              # Strategy 1: Find ORR heading and then the first table after it
++              print("  🔍 [ORR-FIX] Looking for ORR heading paragraph...")
++              orr_heading_idx = None
++              for i, el in enumerate(elems):
++                  if el.tag.endswith('p'):
++                      p = Paragraph(el, doc)
++                      text = (p.text or '').strip().lower()
++                      if 'other related references' in text:
++                          orr_heading_idx = i
++                          print(f"  ✅ [ORR-FIX] ORR heading found at index {i}: '{p.text.strip()}'")
++                          break
++
++              orr_table_idx = None
++              if orr_heading_idx is not None:
++                  print("  🔍 [ORR-FIX] Scanning for first table after ORR heading...")
++                  for j in range(orr_heading_idx + 1, len(elems)):
++                      if elems[j].tag.endswith('tbl'):
++                          orr_table_idx = j
++                          print(f"  ✅ [ORR-FIX] ORR table located at index {j} (after heading)")
++                          break
++
++              # Strategy 2 (fallback): Locate table heuristically by header texts
++              if orr_table_idx is None:
++                  print("  🔍 [ORR-FIX] Fallback: scanning tables by header row text match...")
++                  for i, el in enumerate(elems):
++                      if el.tag.endswith('tbl'):
++                          tbl = Table(el, doc)
++                          try:
++                              if len(tbl.rows) > 0 and len(tbl.rows[0].cells) >= 2:
++                                  row_texts = [
++                                      " ".join((p.text or '') for p in c.paragraphs).strip().lower()
++                                      for c in tbl.rows[0].cells
++                                  ]
++                                  joined = " | ".join(row_texts)
++                                  if ('references found' in joined) and (
++                                      'assignee' in joined or 'author/publisher' in joined or 'inventor' in joined
++                                  ):
++                                      orr_table_idx = i
++                                      print(f"  ✅ [ORR-FIX] ORR table detected at index {i} by fallback (header row: '{joined}')")
++                                      break
++                          except Exception:
++                              print(f"  ⚠️  [ORR-FIX] Error reading table at index {i}, skipping")
++                              continue
++
++              if orr_table_idx is not None:
++                  # If an ORR heading exists anywhere, skip generating another header near the table
++                  if orr_heading_idx is not None:
++                      print("  ℹ️  [ORR-FIX] ORR heading already exists; skipping header insertion to avoid duplicate")
++                  else:
++                      # Ensure header paragraph exists immediately before the table
++                      has_header = False
++                      if orr_table_idx - 1 >= 0 and elems[orr_table_idx - 1].tag.endswith('p'):
++                          prev_p = Paragraph(elems[orr_table_idx - 1], doc)
++                          if (prev_p.text or '').strip().lower() == 'other related references found':
++                              has_header = True
++                      print(f"  🔍 [ORR-FIX] Header present before table: {has_header}")
++
++                      if not has_header:
++                          print("  ➕ [ORR-FIX] Inserting 'OTHER RELATED REFERENCES FOUND' header before table")
++                          new_p = OxmlElement('w:p')
++                          r = OxmlElement('w:r')
++                          rPr = OxmlElement('w:rPr')
++                          rFonts = OxmlElement('w:rFonts')
++                          rFonts.set(qn('w:ascii'), 'Inter')
++                          rFonts.set(qn('w:hAnsi'), 'Inter')
++                          rFonts.set(qn('w:cs'), 'Inter')
++                          rPr.append(rFonts)
++                          b = OxmlElement('w:b')
++                          rPr.append(b)
++                          sz = OxmlElement('w:sz')
++                          sz.set(qn('w:val'), '20')  # 10pt
++                          rPr.append(sz)
++                          szCs = OxmlElement('w:szCs')
++                          szCs.set(qn('w:val'), '20')
++                          rPr.append(szCs)
++                          color = OxmlElement('w:color')
++                          color.set(qn('w:val'), '000000')
++                          rPr.append(color)
++                          r.append(rPr)
++                          t = OxmlElement('w:t')
++                          t.text = 'OTHER RELATED REFERENCES FOUND'
++                          r.append(t)
++                          pPr = OxmlElement('w:pPr')
++                          spacing = OxmlElement('w:spacing')
++                          spacing.set(qn('w:after'), '160')  # 8pt
++                          spacing.set(qn('w:line'), '216')   # 1.08 * 200
++                          spacing.set(qn('w:lineRule'), 'auto')
++                          pPr.append(spacing)
++                          new_p.append(pPr)
++                          new_p.append(r)
++                          body.insert(orr_table_idx, new_p)
++                          print("  ✅ [ORR-FIX] ORR header inserted")
++
++                  # Ensure a page break before Patent-at-Issue if it immediately follows the ORR table
++                  # Find Patent-at-Issue paragraph index
++                  pat_p = None
++                  pat_idx = None
++                  for j, el in enumerate(list(body)):
++                      if el.tag.endswith('p'):
++                          p = Paragraph(el, doc)
++                          if (p.text or '').strip().lower() == 'patent-at-issue':
++                              pat_p = p
++                              pat_idx = j
++                              break
++                  if pat_p is not None:
++                      elems2 = list(body)
++                      # If the immediately previous element is the ORR table, add a page break at start of Patent-at-Issue
++                      prev_is_tbl = (pat_idx - 1 >= 0 and elems2[pat_idx - 1].tag.endswith('tbl'))
++                      print(f"  🔍 [ORR-FIX] Patent-at-Issue at index {pat_idx}, previous is table: {prev_is_tbl}")
++                      if prev_is_tbl:
++                          # Insert a separate paragraph containing a page break BEFORE the Patent-at-Issue paragraph
++                          br = OxmlElement('w:br')
++                          br.set(qn('w:type'), 'page')
++                          run_element = OxmlElement('w:r')
++                          rPr = OxmlElement('w:rPr')
++                          rFonts = OxmlElement('w:rFonts')
++                          rFonts.set(qn('w:ascii'), 'Inter')
++                          rFonts.set(qn('w:hAnsi'), 'Inter')
++                          rFonts.set(qn('w:cs'), 'Inter')
++                          rPr.append(rFonts)
++                          run_element.append(rPr)
++                          run_element.append(br)
++                          new_break_p = OxmlElement('w:p')
++                          new_break_p.append(run_element)
++                          pat_p._p.addprevious(new_break_p)
++                          print("  ✅ [ORR-FIX] Page break paragraph inserted before Patent-at-Issue")
++                      else:
++                          print("  ℹ️  [ORR-FIX] Page break not needed/inserted (previous element is not ORR table)")
++
++                      # Enforce requested formatting for PATENT-AT-ISSUE heading
++                      try:
++                          print("  🔧 [ORR-FIX] Normalizing 'PATENT-AT-ISSUE' heading formatting")
++                          # Robustly apply Heading 1: resolve style and set both high-level and XML pStyle
++                          try:
++                              # Log current paragraph style before changes
++                              try:
++                                  current_style_name = getattr(getattr(pat_p, 'style', None), 'name', None)
++                                  print(f"  🔎 [ORR-FIX] Before: paragraph style = {current_style_name}")
++                              except Exception:
++                                  print("  🔎 [ORR-FIX] Before: paragraph style retrieval failed")
++
++                              heading_style = None
++                              # Try to resolve an existing Heading 1 style in the document
++                              available_style_names = []
++                              for st in getattr(doc.styles, '_styles', []):
++                                  try:
++                                      name = getattr(st, 'name', '') or ''
++                                      if name:
++                                          available_style_names.append(str(name))
++                                      if str(name).strip().lower() in ('heading 1', 'heading1'):
++                                          heading_style = st
++                                          break
++                                  except Exception:
++                                      continue
++                              try:
++                                  print(f"  🔎 [ORR-FIX] Available styles (first 10): {available_style_names[:10]}{' ...' if len(available_style_names)>10 else ''}")
++                              except Exception:
++                                  pass
++                              # Fallback: direct lookup by common names
++                              if heading_style is None:
++                                  try:
++                                      heading_style = doc.styles['Heading 1']
++                                  except Exception:
++                                      try:
++                                          heading_style = doc.styles['Heading1']
++                                      except Exception:
++                                          heading_style = None
++                              # Apply style at python-docx level
++                              if heading_style is not None:
++                                  try:
++                                      print(f"  🔎 [ORR-FIX] Resolved Heading 1: name={getattr(heading_style,'name',None)}, id={getattr(heading_style,'style_id',None)}")
++                                  except Exception:
++                                      pass
++                                  pat_p.style = heading_style
++                              else:
++                                  print("  ⚠️ [ORR-FIX] Could not resolve Heading 1 style object; using name 'Heading 1'")
++                                  pat_p.style = 'Heading 1'
++
++                              # Also enforce paragraph style at XML level (pPr/pStyle)
++                              pPr = pat_p._p.get_or_add_pPr()
++                              # Remove any existing pStyle to avoid duplicates
++                              for el in list(pPr):
++                                  if el.tag == qn('w:pStyle'):
++                                      pPr.remove(el)
++                              pStyle = OxmlElement('w:pStyle')
++                              # Use the style_id if available; else common default 'Heading1'
++                              style_id = None
++                              try:
++                                  style_id = getattr(heading_style, 'style_id', None)
++                              except Exception:
++                                  style_id = None
++                              pStyle.set(qn('w:val'), style_id or 'Heading1')
++                              pPr.append(pStyle)
++
++                              # Ensure outline level 0 so Word treats it as a heading
++                              try:
++                                  for el in list(pPr):
++                                      if el.tag == qn('w:outlineLvl'):
++                                          pPr.remove(el)
++                                  outline = OxmlElement('w:outlineLvl')
++                                  outline.set(qn('w:val'), '0')
++                                  pPr.append(outline)
++                              except Exception:
++                                  pass
++
++                              # Log after applying style
++                              try:
++                                  after_style_name = getattr(getattr(pat_p,'style',None),'name',None)
++                                  print(f"  ✅ [ORR-FIX] After: paragraph style = {after_style_name}")
++                                  ps = pPr.find(qn('w:pStyle'))
++                                  print(f"  ✅ [ORR-FIX] XML pStyle w:val = {ps.get(qn('w:val')) if ps is not None else 'None'}")
++                              except Exception:
++                                  pass
++                          except Exception:
++                              print("  ⚠️ [ORR-FIX] Exception while applying Heading 1 style")
++                          # Paragraph spacing
++                          pf = pat_p.paragraph_format
++                          pf.line_spacing = 1.0
++                          pf.space_after = Pt(0) #Nov6
++                          pf.space_before = Pt(0) #Nov6
++                          # Hard-enforce 0pt before/after at XML level to override style defaults
++                          try:
++                              pPr = pat_p._p.get_or_add_pPr()
++                              # Ensure a single spacing element exists
++                              spacing_el = None
++                              for el in list(pPr):
++                                  if el.tag == qn('w:spacing'):
++                                      spacing_el = el
++                                      break
++                              if spacing_el is None:
++                                  spacing_el = OxmlElement('w:spacing')
++                                  pPr.append(spacing_el)
++                              # Force 0pt before/after and disable auto spacing
++                              spacing_el.set(qn('w:before'), '0')
++                              spacing_el.set(qn('w:after'), '0')
++                              spacing_el.set(qn('w:beforeAutospacing'), '0')
++                              spacing_el.set(qn('w:afterAutospacing'), '0')
++                              # Keep single spacing
++                              spacing_el.set(qn('w:lineRule'), 'auto')
++                              try:
++                                  print(f"  ✅ [ORR-FIX] XML spacing before={spacing_el.get(qn('w:before'))}, after={spacing_el.get(qn('w:after'))}, beforeAutospacing={spacing_el.get(qn('w:beforeAutospacing'))}, afterAutospacing={spacing_el.get(qn('w:afterAutospacing'))}")
++                              except Exception:
++                                  pass
++                          except Exception:
++                              print("  ⚠️ [ORR-FIX] Exception while enforcing spacing on heading paragraph")
++
++                          # Log and normalize next paragraph spacing to eliminate apparent 8pt-after
++                          try:
++                              nxt_el = pat_p._p.getnext()
++                              from docx.text.paragraph import Paragraph as _Paragraph
++                              if nxt_el is not None and nxt_el.tag == qn('w:p'):
++                                  nxt_p = _Paragraph(nxt_el, doc)
++                                  npf = nxt_p.paragraph_format
++                                  # Log current (may be None if inherited from style)
++                                  print(f"  🔎 [ORR-FIX] Next paragraph spacing (before fix): before={getattr(npf,'space_before',None)}, after={getattr(npf,'space_after',None)}")
++                                  # Force before=0 to remove visual gap coming from style defaults
++                                  npf.space_before = Pt(0)
++                                  try:
++                                      pPr_n = nxt_p._p.get_or_add_pPr()
++                                      spacing_n = None
++                                      for el in list(pPr_n):
++                                          if el.tag == qn('w:spacing'):
++                                              spacing_n = el
++                                              break
++                                      if spacing_n is None:
++                                          spacing_n = OxmlElement('w:spacing')
++                                          pPr_n.append(spacing_n)
++                                      spacing_n.set(qn('w:before'), '0')
++                                      spacing_n.set(qn('w:beforeAutospacing'), '0')
++                                      print("  ✅ [ORR-FIX] Next paragraph spacing-before forced to 0")
++                                  except Exception:
++                                      pass
++                          except Exception:
++                              pass
++                          # Ensure the visible heading text is in this paragraph (not in the next)
++                          try:
++                              heading_text = (pat_p.text or '').strip()
++                              next_el2 = pat_p._p.getnext()
++                              if (not heading_text) and next_el2 is not None and next_el2.tag == qn('w:p'):
++                                  from docx.text.paragraph import Paragraph as _Paragraph
++                                  next_p2 = _Paragraph(next_el2, doc)
++                                  next_text = (next_p2.text or '').strip()
++                                  if next_text.lower() == 'patent-at-issue':
++                                      pat_p.add_run(next_text)
++                                      for run in list(next_p2.runs):
++                                          run.text = ''
++                                      print("  🔧 [ORR-FIX] Moved 'Patent-at-Issue' text into heading paragraph to avoid Normal duplicate")
++                          except Exception:
++                              pass
++
++                          # Runs formatting
++                          if len(pat_p.runs) == 0:
++                              pat_p.add_run("")
++                          for r in pat_p.runs:
++                              # Uppercase the heading text
++                              if r.text:
++                                  r.text = r.text.upper()
++                              r.font.bold = True
++                              r.font.size = Pt(12)
++                              try:
++                                  r.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
++                              except Exception:
++                                  pass
++                          print("  ✅ [ORR-FIX] 'PATENT-AT-ISSUE' heading formatted (Heading1, bold, 12pt, single, after 0pt)")
++                      except Exception:
++                          print("  ⚠️  [ORR-FIX] Could not apply 'PATENT-AT-ISSUE' heading formatting")
++                  else:
++                      print("  ⚠️  [ORR-FIX] Could not find 'PATENT-AT-ISSUE' heading in destination document")
++              else:
++                  print("  ⚠️  [ORR-FIX] ORR table not detected; skipping header and page break fixes")
++          except Exception:
++              print("  ⚠️  [ORR-FIX] Exception during ensure_orr_header_and_spacing")
+================================================================================
+
+Diff for remove_stray_orr_heading:
+--- main.py: remove_stray_orr_heading
++++ notebook.txt: remove_stray_orr_heading
+@@ -1,35 +1,32 @@
+-def remove_stray_orr_heading(self, doc):
+-        """
+-        Remove an ORR heading that appears immediately before Patent-at-Issue
+-        without an intervening ORR table.
+-        """
+-        try:
+-            body = doc.element.body
+-            elems = list(body)
+-            from docx.text.paragraph import Paragraph
+-            for i, el in enumerate(elems):
+-                if el.tag.endswith('p'):
+-                    p = Paragraph(el, doc)
+-                    txt = (p.text or '').strip().lower()
+-                    if txt == 'other related references found':
+-                        # Scan forward until next major section or a table
+-                        j = i + 1
+-                        found_table = False
+-                        hit_boundary = False
+-                        while j < len(elems):
+-                            nxt = elems[j]
+-                            if nxt.tag.endswith('tbl'):
+-                                found_table = True
+-                                break
+-                            if nxt.tag.endswith('p'):
+-                                pn = Paragraph(nxt, doc)
+-                                t = (pn.text or '').strip().lower()
+-                                if any(k in t for k in ['patent-at-issue', 'criteria for', 'mappings based', 'disclaimer', 'appendix']):
+-                                    hit_boundary = True
+-                                    break
+-                            j += 1
+-                        if hit_boundary and not found_table:
+-                            body.remove(el)
+-                            break
+-        except Exception:
+-            pass
++def remove_stray_orr_heading(doc):
++          try:
++              body = doc.element.body
++              elems = list(body)
++              from docx.text.paragraph import Paragraph
++              for i, el in enumerate(elems):
++                  if el.tag.endswith('p'):
++                      p = Paragraph(el, doc)
++                      txt = (p.text or '').strip().lower()
++                      if txt == 'other related references found':
++                          # Scan forward until next major section or a table
++                          j = i + 1
++                          found_table = False
++                          hit_boundary = False
++                          while j < len(elems):
++                              nxt = elems[j]
++                              if nxt.tag.endswith('tbl'):
++                                  found_table = True
++                                  break
++                              if nxt.tag.endswith('p'):
++                                  pn = Paragraph(nxt, doc)
++                                  t = (pn.text or '').strip().lower()
++                                  if any(k in t for k in ['patent-at-issue', 'criteria for', 'mappings based', 'disclaimer', 'appendix']):
++                                      hit_boundary = True
++                                      break
++                              j += 1
++                          if hit_boundary and not found_table:
++                              # Remove the stray heading paragraph
++                              body.remove(el)
++                              break
++          except Exception:
++              pass
+================================================================================
