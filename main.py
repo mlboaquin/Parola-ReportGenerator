@@ -1027,16 +1027,23 @@ class PatentReportGenerator:
                 main_para.paragraph_format.space_after = Pt(0)
                 main_para.paragraph_format.space_before = Pt(0)
                 
-                for i, ref in enumerate(self.sorted_references):
+                mapping_references = [
+                    ref for ref in self.sorted_references
+                    if self.should_include_ref_in_mapping(ref)
+                ]
+                
+                for i, ref in enumerate(mapping_references):
                     if i > 0:
                         spacing_run = main_para.add_run("\n\n")
                         spacing_run.font.name = 'Inter'
                         spacing_run.font.size = Pt(9)
                     
+                    display_rank = self.get_mapping_display_rank(ref)
+                    
                     if ref.isNPL:
-                        heading_text = f"{ref.Rank}. {ref.Title}"
+                        heading_text = f'{display_rank}. "{ref.Title}"'
                     else:
-                        heading_text = f"{ref.Rank}. {ref.RawPublicationNumber}"
+                        heading_text = f"{display_rank}. {ref.RawPublicationNumber}"
                     
                     heading_run = main_para.add_run(heading_text)
                     heading_run.font.name = 'Inter'
@@ -1044,7 +1051,7 @@ class PatentReportGenerator:
                     heading_run.bold = True
                     
                     # Add placeholder text only if not the last reference
-                    if i < len(self.sorted_references) - 1:
+                    if i < len(mapping_references) - 1:
                         newline_run = main_para.add_run("\n")
                         newline_run.font.name = 'Inter'
                         newline_run.font.size = Pt(9)
@@ -1056,10 +1063,14 @@ class PatentReportGenerator:
                 rFonts = OxmlElement('w:rFonts')
                 rFonts.set(qn('w:ascii'), 'Inter')
                 rFonts.set(qn('w:hAnsi'), 'Inter')
+                rFonts.set(qn('w:cs'), 'Inter')
                 rPr.append(rFonts)
                 sz = OxmlElement('w:sz')
                 sz.set(qn('w:val'), '18')  # 9pt in half-points
                 rPr.append(sz)
+                szCs = OxmlElement('w:szCs')
+                szCs.set(qn('w:val'), '18')
+                rPr.append(szCs)
                 pPr.append(rPr)
                 final_run = main_para.add_run("\n")
                 final_run.font.name = 'Inter'
@@ -4084,6 +4095,105 @@ class PatentReportGenerator:
         except Exception as e:
             self.log(f"Error ensuring Patent-at-Issue heading format: {str(e)}")
 
+    def fix_document_structure(self, doc):
+        """Fix common XML structure issues that cause Word warnings"""
+        try:
+            # Ensure all paragraphs have proper structure
+            for paragraph in doc.paragraphs:
+                # Ensure paragraph has proper properties
+                pPr = paragraph._p.get_or_add_pPr()
+
+                # Ensure all runs have proper font properties
+                for run in paragraph.runs:
+                    if run._r.rPr is None:
+                        run._r.get_or_add_rPr()
+
+                    # Ensure font properties are complete
+                    rPr = run._r.rPr
+                    if rPr.find(qn('w:rFonts')) is None:
+                        rFonts = OxmlElement('w:rFonts')
+                        rFonts.set(qn('w:ascii'), 'Inter')
+                        rFonts.set(qn('w:hAnsi'), 'Inter')
+                        rFonts.set(qn('w:cs'), 'Inter')
+                        rPr.append(rFonts)
+
+                    if rPr.find(qn('w:sz')) is None:
+                        sz = OxmlElement('w:sz')
+                        sz.set(qn('w:val'), '20')  # 10pt default
+                        rPr.append(sz)
+
+                    if rPr.find(qn('w:szCs')) is None:
+                        szCs = OxmlElement('w:szCs')
+                        szCs.set(qn('w:val'), '20')
+                        rPr.append(szCs)
+
+            # Ensure all table cells have proper structure
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for paragraph in cell.paragraphs:
+                            # Ensure paragraph has proper properties
+                            pPr = paragraph._p.get_or_add_pPr()
+
+                            # Ensure all runs have proper font properties
+                            for run in paragraph.runs:
+                                if run._r.rPr is None:
+                                    run._r.get_or_add_rPr()
+
+                                rPr = run._r.rPr
+                                if rPr.find(qn('w:rFonts')) is None:
+                                    rFonts = OxmlElement('w:rFonts')
+                                    rFonts.set(qn('w:ascii'), 'Inter')
+                                    rFonts.set(qn('w:hAnsi'), 'Inter')
+                                    rFonts.set(qn('w:cs'), 'Inter')
+                                    rPr.append(rFonts)
+
+                                if rPr.find(qn('w:sz')) is None:
+                                    sz = OxmlElement('w:sz')
+                                    sz.set(qn('w:val'), '20')
+                                    rPr.append(sz)
+
+                                if rPr.find(qn('w:szCs')) is None:
+                                    szCs = OxmlElement('w:szCs')
+                                    szCs.set(qn('w:val'), '20')
+                                    rPr.append(szCs)
+
+            self.log("✓ Document structure fixed")
+        except Exception as e:
+            self.log(f"⚠ Warning: Could not fix document structure: {e}")
+
+    def set_header_font_sizes(self, doc):
+        """Set specific font sizes for headers"""
+        try:
+            # Define header text and their target font sizes
+            headers = {
+                "OBJECTIVE": 12,
+                "PATENT-AT-ISSUE": 12,
+                "CRITERIA FOR THE PUBLICATION SEARCH": 12,
+                "MAPPINGS BASED ON SELECTED REFERENCES": 12,
+                "DISCLAIMER": 12,
+                "APPENDIX A": 12,
+                "APPENDIX B": 12,
+                "Search Strategies": 11
+            }
+
+            # Search through all paragraphs to find headers
+            for paragraph in doc.paragraphs:
+                text = paragraph.text.strip().upper()
+
+                # Check if this paragraph contains any of our target headers
+                for header_text, font_size in headers.items():
+                    if header_text.upper() in text:
+                        # Set font size for all runs in this paragraph
+                        for run in paragraph.runs:
+                            run.font.size = Pt(font_size)
+                        self.log(f"✓ Set {header_text} header to {font_size}pt")
+                        break
+
+            self.log("✓ Header font sizes updated")
+        except Exception as e:
+            self.log(f"⚠ Warning: Could not set header font sizes: {e}")
+
     def generate_report(self):
         # Document processing is now in main thread; this method is for data extraction only
         self.log("Data extraction complete in worker thread")
@@ -4092,6 +4202,42 @@ class PatentReportGenerator:
     def save_report(self, output_path):
         self.log("Saving report...")
         try:
+            # Run all post-processing methods to ensure formatting is correct in both modes
+            try:
+                self.ensure_patent_at_issue_spacing_and_format(self.doc)
+            except Exception as e:
+                self.log(f"WARN: ensure_patent_at_issue_spacing_and_format failed: {e}")
+
+            try:
+                self.remove_stray_orr_heading(self.doc)
+            except Exception as e:
+                self.log(f"WARN: remove_stray_orr_heading failed: {e}")
+
+            try:
+                self.ensure_orr_header_and_spacing(self.doc)
+            except Exception as e:
+                self.log(f"WARN: ensure_orr_header_and_spacing failed: {e}")
+
+            try:
+                self.ensure_page_break_before_mappings(self.doc)
+            except Exception as e:
+                self.log(f"WARN: ensure_page_break_before_mappings failed: {e}")
+
+            try:
+                self.relocate_mappings_after_criteria_if_needed(self.doc)
+            except Exception as e:
+                self.log(f"WARN: relocate_mappings_after_criteria_if_needed failed: {e}")
+
+            try:
+                self.fix_document_structure(self.doc)
+            except Exception as e:
+                self.log(f"WARN: fix_document_structure failed: {e}")
+
+            try:
+                self.set_header_font_sizes(self.doc)
+            except Exception as e:
+                self.log(f"WARN: set_header_font_sizes failed: {e}")
+
             excel_name = os.path.splitext(self.excel_filename)[0] if self.excel_filename else "Report"
             date_str = datetime.now().strftime("%d%b%Y")
             if not output_path:
