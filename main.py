@@ -4326,7 +4326,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         """Initialize the main window and set up the user interface."""
         super().__init__()
-        self.setWindowTitle("Report Generation Tool v.1.2")
+        self.setWindowTitle("Report Generation Tool v.1.3")
         self.resize(800, 600)
 
         central_widget = QWidget()
