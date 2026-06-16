@@ -812,6 +812,114 @@ class PatentReportGenerator:
                 formatted = formatted[1:]
         return formatted
 
+    def clean_text(self, value):
+        if pd.isna(value):
+            return ""
+        s = str(value).strip()
+        return "" if s.lower() == "nan" else s
+
+    def normalize_rank(self, rank_value):
+        return self.clean_text(rank_value).strip()
+
+    def is_normal_letter_rank(self, rank_value):
+        r = self.normalize_rank(rank_value).upper()
+        return bool(re.fullmatch(r"[A-Z]", r))
+
+    def get_system_parent_info(self, rank_value):
+        r = self.normalize_rank(rank_value)
+        match = re.match(r'^\[?\s*([A-Z])\.\s*["“](.+?)\s*\]?$', r, re.IGNORECASE)
+        if not match:
+            return None
+        letter = match.group(1).upper()
+        name = match.group(2).strip()
+        name = name.strip().strip('"').strip("”").strip("]").strip()
+        return letter, name
+
+    def is_system_parent_rank(self, rank_value):
+        return self.get_system_parent_info(rank_value) is not None
+
+    def is_system_child_rank(self, rank_value):
+        r = self.normalize_rank(rank_value).upper()
+        return bool(re.fullmatch(r"[A-Z]\.\d+", r))
+
+    def get_rank_parent_letter(self, rank_value):
+        r = self.normalize_rank(rank_value).upper()
+        if self.is_normal_letter_rank(r):
+            return r
+        if self.is_system_child_rank(r):
+            return r.split(".")[0]
+        parent_info = self.get_system_parent_info(rank_value)
+        if parent_info:
+            return parent_info[0]
+        return ""
+
+    def get_child_number(self, rank_value):
+        r = self.normalize_rank(rank_value).upper()
+        if self.is_system_child_rank(r):
+            return int(r.split(".")[1])
+        return 0
+
+    def build_display_rank_map(self, sorted_refs):
+        display_rank_map = {}
+        parent_letter_to_display = {}
+        main_counter = 0
+
+        def number_to_letter(n):
+            result = ""
+            while n > 0:
+                n -= 1
+                result = chr(ord("A") + (n % 26)) + result
+                n //= 26
+            return result
+
+        for ref in sorted_refs:
+            raw_rank = self.clean_text(ref.Rank)
+            parent_letter = self.get_rank_parent_letter(raw_rank)
+
+            if self.is_system_child_rank(raw_rank):
+                display_parent = parent_letter_to_display.get(parent_letter)
+
+                if not display_parent:
+                    main_counter += 1
+                    display_parent = number_to_letter(main_counter)
+                    parent_letter_to_display[parent_letter] = display_parent
+
+                display_rank_map[raw_rank] = f"{display_parent}.{self.get_child_number(raw_rank)}"
+
+            else:
+                main_counter += 1
+                display_letter = number_to_letter(main_counter)
+                display_rank_map[raw_rank] = display_letter
+
+                if parent_letter:
+                    parent_letter_to_display[parent_letter] = display_letter
+
+        return display_rank_map
+
+    def get_mapping_display_rank(self, ref):
+        if not hasattr(self, 'reference_display_rank_map') or not self.reference_display_rank_map:
+            self.reference_display_rank_map = self.build_display_rank_map(self.sorted_references)
+        return self.reference_display_rank_map.get(self.clean_text(ref.Rank), self.clean_text(ref.Rank))
+
+    def should_include_ref_in_mapping(self, ref):
+        raw_rank = self.clean_text(ref.Rank)
+        parent_info = self.get_system_parent_info(raw_rank)
+        current_letter = self.get_rank_parent_letter(raw_rank)
+
+        has_child_refs = any(
+            self.is_system_child_rank(child_ref.Rank)
+            and self.get_rank_parent_letter(child_ref.Rank) == current_letter
+            for child_ref in self.sorted_references
+        )
+
+        if self.is_system_child_rank(raw_rank):
+            return True
+
+        if parent_info or has_child_refs:
+            return False
+
+        return True
+
     def apply_font_style(self, paragraph, size=10, bold=False):
         for run in paragraph.runs:
             run.font.name = 'Inter'
@@ -2289,7 +2397,23 @@ class PatentReportGenerator:
                                         break
                             fragments_to_use = claim_parts if claim_parts else [web_scraped_claim]
                         else:
-                            fragments_to_use = self.extract_claim_fragments_from_excel(self.df)
+                            # Extract claim fragments for the specific ClaimNumber from Excel (June 16)
+                            all_fragments = self.extract_claim_fragments_from_excel(self.df)
+                            fragments_to_use = []
+                            collecting = False
+
+                            for frag in all_fragments:
+                                frag = str(frag).strip()
+
+                                if re.match(rf"^{re.escape(str(ClaimNumber))}\.", frag):
+                                    collecting = True
+                                    fragments_to_use.append(frag)
+
+                                elif collecting and re.match(r"^\d+\.", frag):
+                                    break
+
+                                elif collecting:
+                                    fragments_to_use.append(frag)
 
                         # Merge fragments around "claim X" references
                         merged_fragments = merge_claim_fragments(fragments_to_use)
@@ -2522,6 +2646,7 @@ class PatentReportGenerator:
                 r = (rank_value or "").strip().upper()
                 return ord(r) - ord('A') if len(r) == 1 and 'A' <= r <= 'Z' else 999
             self.sorted_references = sorted(self.top_references, key=lambda r: (rank_index(r.Rank), (r.PublicationNumber or "")))
+            self.reference_display_rank_map = self.build_display_rank_map(self.sorted_references)
             color_cycle = [RGBColor(0x00, 0x70, 0xC0), RGBColor(0xC0, 0x00, 0x00)]
             
             # Initialize global color index for consistent coloring across claims
