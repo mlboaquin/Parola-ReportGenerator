@@ -2150,8 +2150,25 @@
                                   claim_parts = [part.strip() for part in parts if part.strip()]
                                   break
                       fragments_to_use = claim_parts if claim_parts else [web_scraped_claim]
+                      #JUNE16
                   else:
-                      fragments_to_use = extract_claim_fragments_from_excel(df)
+                      all_fragments = extract_claim_fragments_from_excel(df)
+                      fragments_to_use = []
+                      collecting = False
+
+                      for frag in all_fragments:
+                          frag = str(frag).strip()
+
+                          if re.match(rf"^{re.escape(str(ClaimNumber))}\.", frag):
+                              collecting = True
+                              fragments_to_use.append(frag)
+
+                          elif collecting and re.match(r"^\d+\.", frag):
+                              break
+
+                          elif collecting:
+                              fragments_to_use.append(frag)
+                              #JUNE16END
 
                   # Merge fragments around "claim X" references
                   merged_fragments = []

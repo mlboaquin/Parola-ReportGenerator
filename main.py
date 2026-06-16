@@ -1885,7 +1885,7 @@ class PatentReportGenerator:
             target_doc = self.get_target_doc("references")
             
             if self.include_other_related_references:
-                table_rr = self.find_table_with_placeholder(target_doc, "**[REF_INDEX]**") or \
+                table_rr = self.find_table_with_placeholder(target_doc, "[REF_INDEX]") or \
                           self.find_table_with_placeholder(target_doc, "[REF_ENTRY]") or \
                           self.find_table_with_placeholder(target_doc, "[REF_OWNER]")
                 if table_rr:
@@ -1937,7 +1937,7 @@ class PatentReportGenerator:
                             table_rr._tbl.addprevious(new_p)
                         except Exception as e:
                             self.log(f"Warning: Could not insert ORR header before table: {str(e)}")
-                    row_template = self.find_row_with_placeholder(table_rr, "**[REF_INDEX]**") or table_rr.rows[-1]
+                    row_template = self.find_row_with_placeholder(table_rr, "[REF_INDEX]") or table_rr.rows[-1]
                     granted_us_patents, us_applications, foreign_patents, npl_references = [], [], [], []
 
                     for ref in self.related_references:
@@ -2042,11 +2042,11 @@ class PatentReportGenerator:
                     self.add_page_break_before_paragraph(target_doc, other_refs_heading)
 
                 # Find and clear the table with placeholders, then insert message
-                table_rr = self.find_table_with_placeholder(target_doc, "**[REF_INDEX]**") or \
+                table_rr = self.find_table_with_placeholder(target_doc, "[REF_INDEX]") or \
                            self.find_table_with_placeholder(target_doc, "[REF_ENTRY]") or \
                            self.find_table_with_placeholder(target_doc, "[REF_OWNER]")
                 if table_rr:
-                    row_template = self.find_row_with_placeholder(table_rr, "**[REF_INDEX]**") or table_rr.rows[-1]
+                    row_template = self.find_row_with_placeholder(table_rr, "[REF_INDEX]") or table_rr.rows[-1]
 
                     # Clear all cells in template row
                     for cell in row_template.cells:
