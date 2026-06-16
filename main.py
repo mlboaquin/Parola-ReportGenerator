@@ -920,6 +920,98 @@ class PatentReportGenerator:
 
         return True
 
+    # =========================================================
+    # Small rendering helpers for Objective section
+    # =========================================================
+    def style_run(self, run, font_name="Inter", size=10, bold=False):
+        run.font.name = font_name
+        run.font.size = Pt(size)
+        run.bold = bold
+
+    def add_detail_line(self, ref_anchor, text, indent_cm=1.5):
+        detail_para = ref_anchor.insert_paragraph_before(text)
+        detail_para.paragraph_format.left_indent = Cm(indent_cm)
+        detail_para.paragraph_format.space_after = Pt(0)
+        detail_para.paragraph_format.space_before = Pt(0)
+
+        if detail_para.runs:
+            self.style_run(detail_para.runs[0], "Inter", 10, False)
+
+        return detail_para
+
+    def get_ref_publisher(self, ref):
+        if self.clean_text(ref.CurrentAssignee):
+            return self.clean_text(ref.CurrentAssignee)
+        if self.clean_text(ref.OriginalAssignee):
+            return self.clean_text(ref.OriginalAssignee)
+        return ""
+
+    def is_archive_link(self, url):
+        return "web.archive.org" in self.clean_text(url).lower()
+
+    def is_video_link(self, url):
+        url_lower = self.clean_text(url).lower()
+        video_domains = [
+            "youtube.com",
+            "youtu.be",
+            "vimeo.com",
+            "dailymotion.com",
+            "facebook.com/watch",
+            "tiktok.com",
+        ]
+        return any(domain in url_lower for domain in video_domains)
+
+    def render_system_child(self, ref_anchor, target_doc, ref, next_ref_exists=True):
+        """
+        Renders a system child reference (e.g., A.1, A.2) as a nested item:
+          1. "Title"
+              Publisher: ...
+              Publication Date: ...
+              Retrieval Date:
+              Link: ...
+        """
+        child_no = self.get_child_number(ref.Rank)
+
+        # Main numbered child line
+        child_para = ref_anchor.insert_paragraph_before("")
+        child_para.paragraph_format.left_indent = Cm(2.25)
+        child_para.paragraph_format.hanging_indent = Cm(0.5)
+        child_para.paragraph_format.space_after = Pt(0)
+        child_para.paragraph_format.space_before = Pt(0)
+
+        run_num = child_para.add_run(f"{child_no}. ")
+        self.style_run(run_num, "Inter SemiBold", 10, True)
+
+        title_text = self.clean_text(ref.Title)
+        run_title = child_para.add_run(f'"{title_text}"')
+        self.style_run(run_title, "Inter SemiBold", 10, True)
+
+        # Publisher / Author-Publisher line
+        publisher = self.get_ref_publisher(ref)
+        label = "Author/Publisher: " if self.is_video_link(ref.URL) else "Publisher: "
+        self.add_detail_line(ref_anchor, f"{label}{publisher}", indent_cm=2.75)
+
+        # Publication Date or Archive Date
+        date_label = "Archive Date" if self.is_archive_link(ref.URL) else "Publication Date"
+        self.add_detail_line(ref_anchor, f"{date_label}: {self.clean_text(ref.PublicationDate)}", indent_cm=2.75)
+
+        # Do not show Retrieval Date for archive links
+        if not self.is_archive_link(ref.URL):
+            self.add_detail_line(ref_anchor, "Retrieval Date:", indent_cm=2.75)
+
+        # Link line must appear
+        link_url = self.clean_text(ref.URL)
+        link_para = ref_anchor.insert_paragraph_before("")
+        link_para.paragraph_format.left_indent = Cm(2.75)
+        link_para.paragraph_format.space_after = Pt(0)
+        link_para.paragraph_format.space_before = Pt(0)
+
+        link_label_run = link_para.add_run("Link: ")
+        self.style_run(link_label_run, "Inter", 10, False)
+
+        if link_url:
+            self.add_hyperlink_to_paragraph(target_doc, link_para, link_url, link_url)
+
     def apply_font_style(self, paragraph, size=10, bold=False):
         for run in paragraph.runs:
             run.font.name = 'Inter'
