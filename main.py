@@ -859,6 +859,16 @@ class PatentReportGenerator:
             return int(r.split(".")[1])
         return 0
 
+    def rank_sort_key(self, ref):
+        letter = self.get_rank_parent_letter(ref.Rank)
+        if letter and len(letter) == 1 and "A" <= letter <= "Z":
+            letter_index = ord(letter) - ord("A")
+        else:
+            letter_index = 999
+        if self.is_system_child_rank(ref.Rank):
+            return (letter_index, 1, self.get_child_number(ref.Rank))
+        return (letter_index, 0, 0)
+
     def build_display_rank_map(self, sorted_refs):
         display_rank_map = {}
         parent_letter_to_display = {}
@@ -1011,6 +1021,86 @@ class PatentReportGenerator:
 
         if link_url:
             self.add_hyperlink_to_paragraph(target_doc, link_para, link_url, link_url)
+
+    def get_npl_link(self, ref):
+        pub_num = self.clean_text(ref.PublicationNumber)
+        url = self.clean_text(ref.URL)
+        if pub_num:
+            if pub_num.startswith("10."):
+                return f"https://doi.org/{pub_num}", "DOI: ", pub_num
+            if pub_num.startswith("http://") or pub_num.startswith("https://"):
+                if "doi" in pub_num.lower() and "/10." in pub_num:
+                    doi_part = pub_num.split("/10.", 1)[1]
+                    return pub_num, "DOI: ", "10." + doi_part
+                return pub_num, "Link: ", pub_num
+        if url:
+            return url, "Link: ", url
+        return "", "Link: ", ""
+
+    def render_regular_reference_details(self, ref_anchor, target_doc, ref):
+        if ref.isNPL:
+            pub = self.get_ref_publisher(ref)
+            is_doi_ref = False
+            pub_num = self.clean_text(ref.PublicationNumber)
+            if pub_num:
+                if pub_num.startswith("10.") or ("doi.org" in pub_num.lower()):
+                    is_doi_ref = True
+            if pub:
+                author_label = "Author: " if is_doi_ref else "Author/Publisher: "
+                self.add_detail_line(ref_anchor, f"{author_label}{pub}", indent_cm=1.5)
+            if self.clean_text(ref.PublicationDate):
+                self.add_detail_line(ref_anchor, f"Publication Date: {self.clean_text(ref.PublicationDate)}", indent_cm=1.5)
+            if not is_doi_ref:
+                self.add_detail_line(ref_anchor, "Retrieval Date:", indent_cm=1.5)
+        elif self.clean_text(ref.PublicationNumber).startswith("US"):
+            if self.clean_text(ref.Title):
+                self.add_detail_line(ref_anchor, f'"{self.clean_text(ref.Title)}"', indent_cm=1.5)
+            if self.clean_text(ref.CurrentAssignee):
+                if self.clean_text(ref.CurrentAssignee) == self.clean_text(ref.OriginalAssignee):
+                    self.add_detail_line(ref_anchor, f"Original & Current Assignee: {self.clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+                else:
+                    self.add_detail_line(ref_anchor, f"Current Assignee: {self.clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+            if self.clean_text(ref.OriginalAssignee):
+                if self.clean_text(ref.CurrentAssignee) != self.clean_text(ref.OriginalAssignee):
+                    self.add_detail_line(ref_anchor, f"Original Assignee: {self.clean_text(ref.OriginalAssignee)}", indent_cm=1.5)
+            if self.clean_text(ref.PriorityDate):
+                self.add_detail_line(ref_anchor, f"Priority Date: {self.clean_text(ref.PriorityDate)}", indent_cm=1.5)
+            if self.clean_text(ref.FilingDate):
+                self.add_detail_line(ref_anchor, f"Filing Date: {self.clean_text(ref.FilingDate)}", indent_cm=1.5)
+            if self.clean_text(ref.PublicationDate):
+                self.add_detail_line(ref_anchor, f"Publication Date: {self.clean_text(ref.PublicationDate)}", indent_cm=1.5)
+        else:
+            if self.clean_text(ref.Title):
+                self.add_detail_line(ref_anchor, f'"{self.clean_text(ref.Title)}"', indent_cm=1.5)
+            if self.clean_text(ref.CurrentAssignee):
+                if self.clean_text(ref.CurrentAssignee) == self.clean_text(ref.OriginalAssignee):
+                    self.add_detail_line(ref_anchor, f"Original & Current Assignee: {self.clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+                else:
+                    self.add_detail_line(ref_anchor, f"Current Assignee: {self.clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+            if self.clean_text(ref.OriginalAssignee):
+                if self.clean_text(ref.CurrentAssignee) != self.clean_text(ref.OriginalAssignee):
+                    self.add_detail_line(ref_anchor, f"Original Assignee: {self.clean_text(ref.OriginalAssignee)}", indent_cm=1.5)
+            if self.clean_text(ref.PriorityDate):
+                self.add_detail_line(ref_anchor, f"Priority Date: {self.clean_text(ref.PriorityDate)}", indent_cm=1.5)
+            if self.clean_text(ref.FilingDate):
+                self.add_detail_line(ref_anchor, f"Filing Date: {self.clean_text(ref.FilingDate)}", indent_cm=1.5)
+            if self.clean_text(ref.PublicationDate):
+                self.add_detail_line(ref_anchor, f"Publication Date: {self.clean_text(ref.PublicationDate)}", indent_cm=1.5)
+        if ref.isNPL:
+            link_url, display_label, display_text = self.get_npl_link(ref)
+            if link_url:
+                link_para = ref_anchor.insert_paragraph_before("")
+                link_para.paragraph_format.left_indent = Cm(1.5)
+                link_para.paragraph_format.space_after = Pt(0)
+                link_para.paragraph_format.space_before = Pt(0)
+                link_label_run = link_para.add_run(display_label)
+                self.style_run(link_label_run, "Inter", 10, False)
+                self.add_hyperlink_to_paragraph(
+                    target_doc,
+                    link_para,
+                    link_url,
+                    display_text if display_text else link_url
+                )
 
     def apply_font_style(self, paragraph, size=10, bold=False):
         for run in paragraph.runs:
@@ -1466,10 +1556,15 @@ class PatentReportGenerator:
                     cell_value = self.df.iloc[current_row, current_col]
                     if pd.isna(cell_value):
                         break
-                    if str(cell_value).strip() in list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+                    rank_text = self.normalize_rank(cell_value)
+                    if (
+                        self.is_normal_letter_rank(rank_text)
+                        or self.is_system_parent_rank(rank_text)
+                        or self.is_system_child_rank(rank_text)
+                    ):
                         rank_cell_coords = (current_row, current_col)
-                        process_reference(str(cell_value), is_related=False)
-                    elif str(cell_value).strip() in ['RR', 'RR NPL']:
+                        process_reference(rank_text, is_related=False)
+                    elif rank_text in ['RR', 'RR NPL']:
                         rank_cell_coords = (current_row, current_col)
                         process_reference(str(cell_value), is_related=True)
                     current_row += 3
@@ -1803,14 +1898,33 @@ class PatentReportGenerator:
                 num.append(abstractNumId)
                 numbering_part.element.append(num)
 
-                def rank_index(rank_value):
-                    r = (rank_value or "").strip().upper()
-                    return ord(r) - ord('A') if len(r) == 1 and 'A' <= r <= 'Z' else 999
-
-                self.sorted_references = sorted(self.top_references, key=lambda r: (rank_index(r.Rank), (r.PublicationNumber or "")))
+                self.sorted_references = sorted(
+                    self.top_references,
+                    key=lambda r: (self.rank_sort_key(r), self.clean_text(r.PublicationNumber), self.clean_text(r.Title))
+                )
+                self.reference_display_rank_map = self.build_display_rank_map(self.sorted_references)
 
                 for i, ref in enumerate(self.sorted_references):
                     self.isUSPatent(ref)
+
+                    if self.is_system_child_rank(ref.Rank):
+                        self.render_system_child(
+                            ref_anchor,
+                            target_doc,
+                            ref,
+                            next_ref_exists=(i < len(self.sorted_references) - 1)
+                        )
+                        if i < len(self.sorted_references) - 1:
+                            next_ref = self.sorted_references[i + 1]
+                            current_letter = self.get_rank_parent_letter(ref.Rank)
+                            next_letter = self.get_rank_parent_letter(next_ref.Rank)
+                            if not (self.is_system_child_rank(next_ref.Rank) and current_letter == next_letter):
+                                spacer = ref_anchor.insert_paragraph_before("")
+                                spacer.paragraph_format.left_indent = Cm(1.5)
+                                spacer.paragraph_format.space_after = Pt(0)
+                                spacer.paragraph_format.space_before = Pt(0)
+                        continue
+
                     main_para = ref_anchor.insert_paragraph_before()
                     if main_para._p.pPr is not None:
                         main_para._p.remove(main_para._p.pPr)
@@ -1829,223 +1943,44 @@ class PatentReportGenerator:
                     numPr.append(numId)
                     pPr.append(numPr)
 
-                    if ref.isNPL:
-                        pub_text = f'"{ref.Title}"'
-                    elif ref.PublicationNumber.startswith("US"):
+                    parent_info = self.get_system_parent_info(ref.Rank)
+                    if parent_info:
+                        pub_text = f'"{parent_info[1]}"'
+                    elif ref.isNPL:
+                        pub_text = f'"{self.clean_text(ref.Title)}"'
+                    elif self.clean_text(ref.PublicationNumber).startswith("US"):
                         if '/' in (ref.PublicationName or ""):
                             pub_text = f"U.S. Pat. App. Pub. No. {ref.PublicationName}"
                         else:
                             pub_text = f"U.S. Patent No. {ref.PublicationName or ''}"
                     else:
-                        pub_text = ref.PublicationNumber
+                        pub_text = self.clean_text(ref.PublicationNumber)
 
                     run_pub = main_para.add_run(pub_text)
-                    run_pub.font.name = 'Inter SemiBold'
-                    run_pub.font.size = Pt(10)
-                    run_pub.bold = True
+                    self.style_run(run_pub, "Inter SemiBold", 10, True)
 
-                    if ref.isNPL:
-                        # Try both Current and Original assignee fields for author/publisher
-                        pub = None
-                        if ref.CurrentAssignee and str(ref.CurrentAssignee).lower() not in ("nan", ""):
-                            pub = ref.CurrentAssignee
-                        elif ref.OriginalAssignee and str(ref.OriginalAssignee).lower() not in ("nan", ""):
-                            pub = ref.OriginalAssignee
+                    current_letter = self.get_rank_parent_letter(ref.Rank)
+                    has_child_refs = any(
+                        self.is_system_child_rank(child_ref.Rank)
+                        and self.get_rank_parent_letter(child_ref.Rank) == current_letter
+                        for child_ref in self.sorted_references
+                    )
 
-                        if pub:
-                            # Determine if this is a DOI reference to use correct label
-                            is_doi_ref = False
-                            pub_num = ref.PublicationNumber
-                            if pub_num and pub_num.lower() != "nan":
-                                if str(pub_num).startswith("10.") or ("doi.org" in str(pub_num).lower()):
-                                    is_doi_ref = True
-
-                            author_label = "Author: " if is_doi_ref else "Author/Publisher: "
-                            detail_para = ref_anchor.insert_paragraph_before(f"{author_label}{pub}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            detail_para.paragraph_format.space_before = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.PublicationDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Publication Date: {ref.PublicationDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            detail_para.paragraph_format.space_before = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        
-                        # Add DOI or URL link for NPL references
-                        # Determine link URL and display format using same logic as Related References
-                        link_url = None
-                        display_label = "Link: "
-                        display_text = None
-                        is_doi = False
-                        pub_num = ref.PublicationNumber
-
-                        if pub_num and pub_num.lower() != "nan":
-                            # Case 1: Raw DOI (starts with "10.")
-                            if str(pub_num).startswith("10."):
-                                link_url = f"https://doi.org/{pub_num}"
-                                display_label = "DOI: "
-                                display_text = pub_num
-                                is_doi = True
-                            # Case 2: Already a URL containing doi.org
-                            elif (str(pub_num).startswith("http://") or str(pub_num).startswith("https://")) and "doi" in str(pub_num).lower():
-                                link_url = pub_num
-                                # Extract DOI part after doi.org/
-                                if "/10." in pub_num:
-                                    doi_part = pub_num.split("/10.", 1)[1]
-                                    display_label = "DOI: "
-                                    display_text = "10." + doi_part
-                                    is_doi = True
-                                else:
-                                    display_text = pub_num
-                            # Case 3: Other URL
-                            elif str(pub_num).startswith("http://") or str(pub_num).startswith("https://"):
-                                link_url = pub_num
-                                display_text = pub_num
-
-                        # Fallback to URL field if no link found from PublicationNumber
-                        if not link_url and ref.URL and ref.URL.lower() != "nan":
-                            link_url = ref.URL
-                            display_text = ref.URL
-
-                        # Add the link paragraph if we have a URL
-                        if link_url:
-                            link_para = ref_anchor.insert_paragraph_before("")
-                            link_para.paragraph_format.left_indent = Cm(1.5)
-                            link_para.paragraph_format.space_after = Pt(0)
-                            link_para.paragraph_format.space_before = Pt(0)
-
-                            # Add label ("DOI: " or "Link: ") - plain text, not clickable
-                            link_label_run = link_para.add_run(display_label)
-                            link_label_run.font.name = 'Inter'
-                            link_label_run.font.size = Pt(10)
-
-                            # Add the hyperlink with appropriate display text
-                            self.add_hyperlink_to_paragraph(target_doc, link_para, link_url, display_text if display_text else link_url)
-
-                    elif ref.PublicationNumber.startswith("US"):
-                        if ref.Title and str(ref.Title).lower() != 'nan':
-                            detail_para = ref_anchor.insert_paragraph_before(f'"{ref.Title}"')
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            detail_para.paragraph_format.space_before = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.CurrentAssignee and str(ref.CurrentAssignee).lower() != 'nan':
-                            if ref.CurrentAssignee == ref.OriginalAssignee:
-                                detail_para = ref_anchor.insert_paragraph_before(f"Original & Current Assignee: {ref.CurrentAssignee}")
-                            else:
-                                detail_para = ref_anchor.insert_paragraph_before(f"Current Assignee: {ref.CurrentAssignee}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.OriginalAssignee and str(ref.OriginalAssignee).lower() != 'nan':
-                            if ref.CurrentAssignee != ref.OriginalAssignee:
-                                detail_para = ref_anchor.insert_paragraph_before(f"Original Assignee: {ref.OriginalAssignee}")
-                                detail_para.paragraph_format.left_indent = Cm(1.5)
-                                detail_para.paragraph_format.space_after = Pt(0)
-                                run_detail = detail_para.runs[0]
-                                run_detail.font.name = 'Inter'
-                                run_detail.font.size = Pt(10)
-                                run_detail.bold = False
-                        if ref.PriorityDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Priority Date: {ref.PriorityDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.FilingDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Filing Date: {ref.FilingDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.PublicationDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Publication Date: {ref.PublicationDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-
+                    if parent_info or has_child_refs:
+                        publisher = self.get_ref_publisher(ref)
+                        self.add_detail_line(ref_anchor, f"Publisher: {publisher}", indent_cm=1.5)
                     else:
-                        if ref.Title and str(ref.Title).lower() != 'nan':
-                            detail_para = ref_anchor.insert_paragraph_before(f'"{ref.Title}"')
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.CurrentAssignee and str(ref.CurrentAssignee).lower() != 'nan':
-                            if ref.CurrentAssignee == ref.OriginalAssignee:
-                                detail_para = ref_anchor.insert_paragraph_before(f"Original & Current Assignee: {ref.CurrentAssignee}")
-                            else:
-                                detail_para = ref_anchor.insert_paragraph_before(f"Current Assignee: {ref.CurrentAssignee}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.OriginalAssignee and str(ref.OriginalAssignee).lower() != 'nan':
-                            if ref.CurrentAssignee != ref.OriginalAssignee:
-                                detail_para = ref_anchor.insert_paragraph_before(f"Original Assignee: {ref.OriginalAssignee}")
-                                detail_para.paragraph_format.left_indent = Cm(1.5)
-                                detail_para.paragraph_format.space_after = Pt(0)
-                                run_detail = detail_para.runs[0]
-                                run_detail.font.name = 'Inter'
-                                run_detail.font.size = Pt(10)
-                                run_detail.bold = False
-                        if ref.PriorityDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Priority Date: {ref.PriorityDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.FilingDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Filing Date: {ref.FilingDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-                        if ref.PublicationDate:
-                            detail_para = ref_anchor.insert_paragraph_before(f"Publication Date: {ref.PublicationDate}")
-                            detail_para.paragraph_format.left_indent = Cm(1.5)
-                            detail_para.paragraph_format.space_after = Pt(0)
-                            run_detail = detail_para.runs[0]
-                            run_detail.font.name = 'Inter'
-                            run_detail.font.size = Pt(10)
-                            run_detail.bold = False
-
-
+                        self.render_regular_reference_details(ref_anchor, target_doc, ref)
 
                     if i < len(self.sorted_references) - 1:
-                        spacer = ref_anchor.insert_paragraph_before("")
-                        spacer.paragraph_format.left_indent = Cm(1.5)
-                        spacer.paragraph_format.space_after = Pt(0)
-                        spacer.paragraph_format.space_before = Pt(0)
+                        next_ref = self.sorted_references[i + 1]
+                        current_letter = self.get_rank_parent_letter(ref.Rank)
+                        next_letter = self.get_rank_parent_letter(next_ref.Rank)
+                        if not (self.is_system_child_rank(next_ref.Rank) and current_letter == next_letter):
+                            spacer = ref_anchor.insert_paragraph_before("")
+                            spacer.paragraph_format.left_indent = Cm(1.5)
+                            spacer.paragraph_format.space_after = Pt(0)
+                            spacer.paragraph_format.space_before = Pt(0)
 
                 if ref_anchor:
                     parent = ref_anchor._element.getparent()
@@ -2734,10 +2669,10 @@ class PatentReportGenerator:
                 self.log(f"DEBUG: [pre-mappings] indices → criteria={criteria_idx_pre}, mappings={mappings_idx_pre}, about={about_idx_pre}, disclaimer={disclaimer_idx_pre}")
             except Exception:
                 pass
-            def rank_index(rank_value):
-                r = (rank_value or "").strip().upper()
-                return ord(r) - ord('A') if len(r) == 1 and 'A' <= r <= 'Z' else 999
-            self.sorted_references = sorted(self.top_references, key=lambda r: (rank_index(r.Rank), (r.PublicationNumber or "")))
+            self.sorted_references = sorted(
+                self.top_references,
+                key=lambda r: (self.rank_sort_key(r), self.clean_text(r.PublicationNumber), self.clean_text(r.Title))
+            )
             self.reference_display_rank_map = self.build_display_rank_map(self.sorted_references)
             color_cycle = [RGBColor(0x00, 0x70, 0xC0), RGBColor(0xC0, 0x00, 0x00)]
             
