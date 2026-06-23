@@ -1,0 +1,3721 @@
+      #Oct10 FROM HERE
+      from pickle import TRUE
+      # @title Double Click Me to Hide&Show Code
+      # =========================================================
+      # Install required libraries
+      # =========================================================
+      !pip install --quiet pandas openpyxl python-docx requests beautifulsoup4 lxml msoffcrypto-tool
+
+      # =========================================================
+      # Imports
+      # =========================================================
+      import pandas as pd
+      from io import BytesIO
+      from google.colab import files
+      from docx import Document
+      import docx
+      import requests
+      from bs4 import BeautifulSoup
+      import re
+      from docx.shared import Pt, Inches, RGBColor, Mm, Cm
+      from docx.oxml import OxmlElement
+      from docx.oxml.ns import qn
+      from datetime import datetime
+      import os
+      import difflib
+      from copy import deepcopy
+      from docx.enum.text import WD_ALIGN_PARAGRAPH
+      from docx.text.paragraph import Paragraph
+      import msoffcrypto
+      import io
+
+      # =========================================================
+      # Password protection unlock function
+      # =========================================================
+      def unlock_password_protected_docx(file_bytes, password):
+          """Decrypt password-protected Word file"""
+          try:
+              encrypted_file = io.BytesIO(file_bytes)
+              decrypted_file = io.BytesIO()
+
+              office_file = msoffcrypto.OfficeFile(encrypted_file)
+              office_file.load_key(password=password)
+              office_file.decrypt(decrypted_file)
+
+              decrypted_file.seek(0)
+              print("✓ Template unlocked successfully!")
+              return decrypted_file
+          except Exception as e:
+              print(f"⚠ Note: {e}")
+              print("If file is not password-protected, this is normal. Proceeding...")
+              # Return original bytes if decryption fails (file might not be protected)
+              return io.BytesIO(file_bytes)
+
+      #Oct21
+      # =========================================================
+      # REPORT TYPE SELECTION
+      # =========================================================
+      print("\n" + "="*60)
+      print("REPORT GENERATION TOOL - SELECT REPORT TYPE")
+      print("="*60)
+      print("\nChoose report type:")
+      print("1. NEW REPORT")
+      print("   - Generates a fresh report with all sections from scratch (use case: Interim Report)")
+      print("   - Files needed: Excel + Blank Template")
+      print("\n2. UPDATE REPORT")
+      print("   - Updates the date and top references of an existing report while preserving other sections like mapping tables (use case: Completion Report)")
+      print("   - Files needed: Excel + Blank Template + existing report (e.g. Interim Report)")
+      print("="*60)
+
+      report_type = input("\nEnter 1 for New Report or 2 for Updated Report: ").strip()
+
+      if report_type == '1':
+          print("\n✓ NEW REPORT selected - Will generate all sections fresh\n")
+          skip_edited_upload = True
+      elif report_type == '2':
+          print("\n✓ UPDATE REPORT selected - Will preserve Mapping section\n")
+          skip_edited_upload = False
+      else:
+          print("\n⚠ Invalid choice, defaulting to NEW REPORT\n")
+          skip_edited_upload = True
+
+      # Flag for Completion mode
+      completion_mode = (report_type == '2')
+
+      # =========================================================
+      # Upload Excel, Blank Template, and Edited Report (SEPARATE UPLOADS)
+      # =========================================================
+      print("Please upload the Excel file first...")
+      uploaded_excel = files.upload()
+      excel_filename = None
+      for fname in uploaded_excel:
+          if fname.lower().endswith(('.xlsx', '.xls')):
+              excel_filename = fname
+              break
+      if not excel_filename:
+          raise RuntimeError("An Excel file (.xlsx/.xls) must be uploaded.")
+
+      # Load Excel
+      df = pd.read_excel(BytesIO(uploaded_excel[excel_filename]), header=None)
+      #feb10
+      from openpyxl import load_workbook
+      from openpyxl.utils.datetime import from_excel
+
+      excel_bytes = BytesIO(uploaded_excel[excel_filename])
+      wb = load_workbook(excel_bytes, data_only=True)
+      ws = wb.active
+      #feb10 up to here
+
+      print("Now upload the BLANK Word template (Template_Report.docx)...")
+      uploaded_blank = files.upload()
+      blank_filename = None
+      for fname in uploaded_blank:
+          if fname.lower().endswith('.docx'):
+              blank_filename = fname
+              break
+      if not blank_filename:
+          raise RuntimeError("A blank Word template (.docx) must be uploaded.")
+
+      # Handle edited report upload based on report type
+      edited_filename = None
+      if skip_edited_upload:
+          print("Skipping existing word report upload (Interim Report mode)")
+      else:
+          print("Now upload an Interim Report or an existing Word report you want to update.")
+          uploaded_edited = files.upload()
+          for fname in uploaded_edited:
+              if fname.lower().endswith('.docx'):
+                  edited_filename = fname
+                  break
+          if not edited_filename:
+              print("⚠ No existing Word report uploaded. Will generate all sections fresh.")
+
+      #UP TO HERE
+
+      # =========================================================
+      # PASSWORD CONFIGURATION - Change this Word's file password
+      # =========================================================
+      TEMPLATE_PASSWORD = "parolatools"  # CHANGE THIS to your actual password
+
+      # Load and decrypt blank template
+      blank_bytes = uploaded_blank[blank_filename]
+      print("Checking blank template protection...")
+      decrypted_blank = unlock_password_protected_docx(blank_bytes, TEMPLATE_PASSWORD)
+
+      edited_doc = None
+      if edited_filename:
+          edited_bytes = uploaded_edited[edited_filename]
+          print("Checking edited report protection...")
+          decrypted_edited = unlock_password_protected_docx(edited_bytes, TEMPLATE_PASSWORD)
+          edited_doc = Document(decrypted_edited)
+          print("✓ Existing Word Report loaded!")
+
+      # Choose working document
+      if completion_mode and edited_doc is not None:
+          # Use edited as base to preserve images in preserved sections
+          doc = edited_doc
+          print("✓ Using existing report as base document (Completion mode)")
+          # Prepare a separate generated document
+          gen_doc = Document(decrypted_blank)
+          print("✓ Prepared fresh document for regenerated sections")
+          print(f"🔧 gen_doc object: {gen_doc}")
+          print(f"🔧 doc object: {doc}")
+      else:
+          doc = Document(decrypted_blank)
+          print("✓ Blank template loaded and ready!")
+      #UP TO HERE
+
+      # =========================================================
+      # Data classes and helpers
+      # =========================================================
+      class Reference:
+          def __init__(self):
+              self.PublicationNumber = ""
+              self.PriorityDate = ""
+              self.FilingDate = ""
+              self.PublicationDate = ""
+              self.OriginalAssignee = ""
+              self.CurrentAssignee = ""
+              self.Title = ""
+              self.URL = ""
+              self.Rank = ""
+              self.isNPL = None
+              self.PublicationName = None
+              self.RawPublicationNumber = ""
+
+      top_references = []
+      related_references = []
+      #Oct27
+      def get_short_patent_name_with_suffix(patent_number):
+          """Updated to handle non-US patents"""
+          cleaned = patent_number.replace(',', '').replace(' ', '')
+
+          # Check if US patent and remove US prefix
+          is_us_patent = cleaned.upper().startswith('US')
+          if is_us_patent:
+              cleaned = cleaned[2:]
+
+          match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
+          if not match:
+              digits_only = re.sub(r'\D', '', cleaned)
+              short_num = digits_only[-3:] if len(digits_only) >= 3 else digits_only
+              return f"'{short_num} Patent"
+
+          prefix, digits, suffix = match.groups()
+          short_digits = digits[-3:] if len(digits) >= 3 else digits
+
+          return f"'{short_digits} Patent"
+
+      def get_short_patent_name_v2(patent_number):
+          """Updated to handle non-US patents"""
+          cleaned = patent_number.replace(',', '').replace(' ', '')
+
+          # Check if US patent and remove US prefix
+          is_us_patent = cleaned.upper().startswith('US')
+          if is_us_patent:
+              cleaned = cleaned[2:]
+
+          match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
+
+          if not match:
+              digits_only = re.sub(r'\D', '', cleaned)
+              short_num = digits_only[-3:] if len(digits_only) >= 3 else digits_only
+              return f"'{short_num}"
+
+          prefix, digits, suffix = match.groups()
+          short_digits = digits[-3:] if len(digits) >= 3 else digits
+
+          return f"'{short_digits}"
+
+      #UP to here (Oct27)
+
+      #Oct27
+      def format_patent_display(patent_number, include_prefix=True):
+          """
+          Format patent number for display based on country code
+          - US patents: "U.S. Patent No. 10,123,456"
+          - Non-US patents: "CN12345678A" (NO prefix, just raw number)
+          """
+          if pd.isna(patent_number) or not patent_number:
+              return ""
+
+          patent_str = str(patent_number).strip()
+
+          # Check if it's a US patent
+          if patent_str.upper().startswith("US"):
+              core = patent_str[2:]  # Remove "US" prefix
+              # Remove any suffix (A1, B2, etc.) for display
+              match = re.match(r'(\d+)', core)
+              if match:
+                  digits = match.group(1)
+                  formatted = format_number_with_commas(digits)
+                  if include_prefix:
+                      return f"U.S. Patent No. {formatted}"
+                  else:
+                      return formatted
+              return patent_str
+          else:
+              # Non-US patent - return JUST the publication number, NO prefix
+              return patent_str
+      #UP TO HERE (OCT27)
+      def extract_patent_number(cell_value):
+          """Extract patent number from cell value that may contain extra text."""
+          if pd.isna(cell_value):
+              return ""
+
+          cell_str = str(cell_value).strip()
+
+          # Pattern to match US patent numbers with optional suffix
+          pattern = r'(US\d{7,11}(?:[A-Z]\d{1,2})?)'
+          match = re.search(pattern, cell_str, re.IGNORECASE)
+          if match:
+              return match.group(1).upper()
+
+          # Fallback for other country codes
+          pattern_generic = r'([A-Z]{2}\d{7,}(?:[A-Z]\d{1,2})?)'
+          match_generic = re.search(pattern_generic, cell_str, re.IGNORECASE)
+          if match_generic:
+              return match_generic.group(1).upper()
+
+          return cell_str
+          #UP TO HERE
+
+      def clean_publication_number(pub_num):
+          pub_num = str(pub_num)
+          match = re.match(r'(US)(\d+)', pub_num)
+          if match:
+              return match.group(1) + match.group(2)
+          else:
+              return pub_num
+
+      #Feb10
+      def format_date(row, col):
+          """
+          Return the date exactly as Excel *displays* it (using number_format).
+          Works even if Excel stores it as a real date but shows 'MMMM YYYY' etc.
+          row/col are 0-based dataframe coordinates (same as df.iloc).
+          """
+          cell = ws.cell(row=row + 1, column=col + 1)  # openpyxl is 1-based
+          v = cell.value
+          fmt = (cell.number_format or "").lower()
+
+          if v in (None, ""):
+              return ""
+
+          # Excel serial number -> datetime
+          if isinstance(v, (int, float)):
+              try:
+                  v = from_excel(v)
+              except Exception:
+                  return str(v)
+
+          # If it's a datetime-like value
+          if isinstance(v, datetime):
+              # December 1994 style (no day)
+              if ("mmmm" in fmt or "mmm" in fmt) and "yyyy" in fmt and "d" not in fmt:
+                  return v.strftime("%B %Y") if "mmmm" in fmt else v.strftime("%b %Y")
+
+              # Year-only
+              if "yyyy" in fmt and "m" not in fmt and "d" not in fmt:
+                  return v.strftime("%Y")
+
+              # Default: Day Month Year (no leading zero)
+              out = v.strftime("%d %B %Y")
+              return out[1:] if out.startswith("0") else out
+
+          # If Excel stored it as text already, return text (strip leading day zero if any)
+          s = str(v).strip()
+          if s.lower() == "nan":
+              return ""
+          if re.match(r"^0\d\s", s):
+              return s[1:]
+          return s
+      #Feb10 Up to here
+
+      #Up to here
+      def apply_font_style(paragraph, size=10, bold=False):
+          for run in paragraph.runs:
+              run.font.name = 'Inter'
+              run.font.size = Pt(size)
+              run.bold = bold
+      #Oct27
+      def isUSPatent(ref):
+          """Updated to properly format both US and non-US patents"""
+          if ref.PublicationNumber.startswith("US"):
+              # US Patent logic (existing)
+              name = ref.PublicationNumber[2:]
+              name = re.sub(r'[^\d]', '', name)
+              if len(name) >= 11 and name[:4].isdigit():
+                  year = name[:4]
+                  pub_seq = name[4:11]
+                  ref.PublicationName = f"{year}/{pub_seq}"
+              else:
+                  try:
+                      number = int(name.lstrip("0"))
+                      ref.PublicationName = "{:,}".format(number)
+                  except:
+                      ref.PublicationName = name
+          else:
+              # Non-US Patent - keep as-is
+              ref.PublicationName = ref.PublicationNumber
+      #UP TO HERE (Oct27)
+      def fetch_abstract(publication_number):
+          url = f"https://patents.google.com/patent/{publication_number}/en"
+          try:
+              response = requests.get(url, timeout=10)
+              if response.status_code != 200:
+                  return "Abstract not found."
+              soup = BeautifulSoup(response.content, "html.parser")
+              abstract_tag = soup.find("meta", {"name": "DC.description"})
+              if abstract_tag:
+                  return abstract_tag.get("content", "Abstract not found.")
+              return "Abstract not found."
+          except Exception:
+              return "Abstract fetch error."
+      #Feb10
+      def extract_claim_fragments_from_excel(df):
+          claim_parts = []
+
+          # Look for any of the expert comments variations
+          expert_comments_variations = ['Expert Comments', 'Expert/Reviewer Comments', 'Reviewer Comments']
+          claim_start_idx = None
+
+          for variation in expert_comments_variations:
+              try:
+                  claim_start_idx = df[df[0] == variation].index[0] + 1
+                  break
+              except (IndexError, KeyError):
+                  continue
+
+          if claim_start_idx is None:
+              return []
+
+          while claim_start_idx < len(df):
+              cell_value = df.iloc[claim_start_idx, 0]
+              if pd.isna(cell_value) or str(cell_value).strip() == "":
+                  break
+              claim_parts.append(str(cell_value).strip())
+              claim_start_idx += 1
+          return claim_parts
+
+      #Feb10 Up to here
+
+      def format_number_with_commas(number_str):
+          # Extract only the digits at the start
+          match = re.match(r"\d+", number_str)
+          if match:
+              digits = match.group()
+              return "{:,}".format(int(digits))
+          else:
+              return number_str
+
+      def get_claim_from_google_patents(patent_number, claim_num):
+          try:
+              url = f"https://patents.google.com/patent/{patent_number}/en"
+              response = requests.get(url, timeout=10)
+              if response.status_code != 200:
+                  return None
+              soup = BeautifulSoup(response.content, "html.parser")
+              claims_div = soup.find("section", itemprop="claims")
+              if not claims_div:
+                  return None
+              claims_text = claims_div.get_text(separator="\n")
+              claim_lines = claims_text.strip().split("\n")
+              claim_full_text = ""
+              collect = False
+              for line in claim_lines:
+                  if re.match(rf"^{claim_num}\.", line.strip()):
+                      collect = True
+                  elif re.match(r"^\d+\.", line.strip()) and not line.strip().startswith(f"{claim_num}."):
+                      if collect:
+                          break
+                  if collect:
+                      processed_line = re.sub(
+                          r'\bUS(\d{7,})\b',
+                          lambda m: format_number_with_commas(m.group(1)),
+                          line.strip()
+                      )
+                      claim_full_text += processed_line + "\n"
+              return claim_full_text.strip()
+          except Exception:
+              return None
+
+      def insert_paragraph_after(paragraph, text=""):
+          new_p = OxmlElement('w:p')
+          paragraph._p.addnext(new_p)
+          para = Paragraph(new_p, paragraph._parent)
+          if text:
+              run = para.add_run(text)
+              run.font.name = 'Inter'
+          return para
+
+      # Helpers to insert tables at placeholders
+      def insert_table_after_paragraph(doc, table, paragraph):
+          # detach table from end and insert after target paragraph
+          tbl_el = table._tbl
+          body = doc.element.body
+          body.remove(tbl_el)
+          paragraph._p.addnext(tbl_el)
+
+      def delete_row(table, row):
+          table._tbl.remove(row._tr)
+      #NEW HERE
+      def parse_claim_numbers(claim_input, patent_number):
+          """
+          Parse claim numbers from various input formats:
+          - "1-30" -> [1, 2, 3, ..., 30]
+          - "All" or "all" -> fetch all claims from Google Patents
+          - "1, 5, 10" -> [1, 5, 10]
+          - "1-5, 10, 15-20" -> [1, 2, 3, 4, 5, 10, 15, 16, 17, 18, 19, 20]
+          """
+          if pd.isna(claim_input):
+              return []
+
+          claim_str = str(claim_input).strip().upper()
+
+          # Handle "All" case
+          if claim_str == "ALL":
+              return get_all_claim_numbers_from_google(patent_number)
+
+          claim_numbers = []
+          parts = [part.strip() for part in claim_str.split(',')]
+
+          for part in parts:
+              if '-' in part:
+                  range_parts = part.split('-')
+                  if len(range_parts) == 2:
+                      try:
+                          start = int(range_parts[0].strip())
+                          end = int(range_parts[1].strip())
+                          claim_numbers.extend(range(start, end + 1))
+                      except ValueError:
+                          continue
+              else:
+                  try:
+                      num_match = re.search(r'\d+', part)
+                      if num_match:
+                          claim_numbers.append(int(num_match.group()))
+                  except ValueError:
+                      continue
+
+          claim_numbers = sorted(list(set(claim_numbers)))
+          return [str(num) for num in claim_numbers]
+
+
+      def get_all_claim_numbers_from_google(patent_number):
+          """Fetch all claim numbers from Google Patents"""
+          try:
+              url = f"https://patents.google.com/patent/{patent_number}/en"
+              response = requests.get(url, timeout=10)
+              if response.status_code != 200:
+                  return []
+
+              soup = BeautifulSoup(response.content, "html.parser")
+              claims_div = soup.find("section", itemprop="claims")
+              if not claims_div:
+                  return []
+
+              claims_text = claims_div.get_text(separator="\n")
+              claim_lines = claims_text.strip().split("\n")
+
+              claim_numbers = []
+              for line in claim_lines:
+                  match = re.match(r'^(\d+)\.', line.strip())
+                  if match:
+                      claim_numbers.append(match.group(1))
+
+              return claim_numbers
+          except Exception:
+              return []
+
+      #Oct21
+      def extract_mapping_section(edited_doc):
+          """Extract the Mapping section from edited document"""
+          if not edited_doc:
+              return []
+          body = edited_doc.element.body
+          elements = []
+          start_found = False
+          for child in list(body):
+              if child.tag == qn('w:p'):
+                  p = Paragraph(child, edited_doc)
+                  text_lower = p.text.lower().strip()
+                  if not start_found and ("mappings based on selected references" in text_lower):
+                      start_found = True
+                      elements.append(child)
+                      continue
+              if start_found:
+                  if child.tag == qn('w:p'):
+                      p = Paragraph(child, edited_doc)
+                      text_lower = p.text.lower().strip()
+                      # Look for various possible end markers
+                      if any(marker in text_lower for marker in ["disclaimer", "appendix a", "appendix b", "search strategies"]):
+                          break
+                  elements.append(child)
+          return [deepcopy(el) for el in elements]
+
+      def extract_criteria_section(edited_doc):
+          """Extract the Criteria for Publication Search section from edited document"""
+          if not edited_doc:
+              return []
+          body = edited_doc.element.body
+          elements = []
+          start_found = False
+          for child in list(body):
+              if child.tag == qn('w:p'):
+                  p = Paragraph(child, edited_doc)
+                  text_lower = p.text.lower().strip()
+                  if not start_found and ("criteria for the publication search" in text_lower):
+                      start_found = True
+                      elements.append(child)
+                      continue
+              if start_found:
+                  if child.tag == qn('w:p'):
+                      p = Paragraph(child, edited_doc)
+                      text_lower = p.text.lower().strip()
+                      if "mappings based on selected references" in text_lower:
+                          break
+                  elements.append(child)
+          return [deepcopy(el) for el in elements]
+
+      def remove_section(doc, start_key, end_key):
+          """Remove a section from document between two markers"""
+          body = doc.element.body
+          to_remove = []
+          start_found = False
+          for child in list(body):
+              if child.tag == qn('w:p'):
+                  p = Paragraph(child, doc)
+                  text_lower = p.text.lower().strip()
+                  if not start_found and start_key in text_lower:
+                      start_found = True
+                      to_remove.append(child)
+                      continue
+              if start_found:
+                  if child.tag == qn('w:p'):
+                      p = Paragraph(child, doc)
+                      text_lower = p.text.lower().strip()
+                      if end_key in text_lower:
+                          break
+                  to_remove.append(child)
+          for el in to_remove:
+              body.remove(el)
+
+      def insert_element_after(anchor, element):
+          """Insert element after anchor, sanitizing relationships"""
+          new_elem = deepcopy(element)
+          # Sanitize relationships/hyperlinks copied from another document
+          def _strip_relationship_ids(node):
+              # Remove any r:id attributes to avoid broken relationships
+              for el in node.iter():
+                  # Remove relationship id attributes if present
+                  for attr in list(el.attrib.keys()):
+                      if attr.endswith('}id'):
+                          del el.attrib[attr]
+          def _flatten_hyperlinks(node):
+              # Replace w:hyperlink elements with their children runs to keep text
+              to_replace = []
+              for el in list(node.iter()):
+                  if el.tag.endswith('}hyperlink'):
+                      to_replace.append(el)
+              for hl in to_replace:
+                  parent = hl.getparent()
+                  idx = list(parent).index(hl)
+                  for child in list(hl):
+                      parent.insert(idx, child)
+                      idx += 1
+                  parent.remove(hl)
+          _flatten_hyperlinks(new_elem)
+          _strip_relationship_ids(new_elem)
+          anchor._element.addnext(new_elem)
+          if new_elem.tag == qn('w:p'):
+              return Paragraph(new_elem, anchor._parent)
+          elif new_elem.tag == qn('w:tbl'):
+              return docx.table.Table(new_elem, anchor._parent)
+          else:
+              return None
+      #UP TO HERE
+
+      # =========================================================
+      # Extract patent-at-issue and claim info
+      # =========================================================
+      PatentAtIssue_Number = extract_patent_number(df.iloc[1, 0]) #NEW HERE
+      short_patent_name = get_short_patent_name_with_suffix(PatentAtIssue_Number)
+      short_patent_name_v2 = get_short_patent_name_v2(PatentAtIssue_Number)
+      short_patent_name_lower = short_patent_name.replace(" Patent", " patent") #NEW HERE
+
+      # Find the "Required Claims" row
+      required_claims_row_idx = None
+      for idx, row in df.iterrows():
+          for col_idx, cell in enumerate(row):
+              if pd.notna(cell) and 'required claim' in str(cell).strip().lower():
+                  required_claims_row_idx = idx
+                  break
+          if required_claims_row_idx is not None:
+              break
+
+      ClaimNumbers = []
+      if required_claims_row_idx is not None:
+          claim_input = df.iloc[required_claims_row_idx, 1] if len(df.columns) > 1 else None
+          if pd.notna(claim_input):
+              ClaimNumbers = parse_claim_numbers(claim_input, PatentAtIssue_Number)
+      #Feb10
+      # FALLBACK: If no "Required Claims" found, use old method with dynamic expert comments detection
+      if not ClaimNumbers:
+          # Look for any of the expert comments variations
+          expert_comments_variations = ['Expert Comments', 'Expert/Reviewer Comments', 'Reviewer Comments']
+          expert_comments_row_idx = None
+
+          for variation in expert_comments_variations:
+              try:
+                  expert_comments_row_idx = df[df[0] == variation].index[0]
+                  print(f"✓ Found '{variation}' row")
+                  break
+              except (IndexError, KeyError):
+                  continue
+
+          if expert_comments_row_idx is None:
+              raise RuntimeError("Could not find Expert Comments, Expert/Reviewer Comments, or Reviewer Comments row in Excel")
+
+          claim_row_idx = expert_comments_row_idx + 1
+          for cell in df.iloc[claim_row_idx:, 0]:
+              if pd.isna(cell) or str(cell).strip() == "":
+                  break
+              cell_str = str(cell).strip()
+              if re.match(r"^\d", cell_str):
+                  claim_num = cell_str.replace(".", "")[:2].strip()
+                  ClaimNumbers.append(claim_num)
+      #Feb10 UP TO HERE
+      claim_word = "claim" if len(ClaimNumbers) == 1 else "claims"
+      #UP TO HERE
+      # =========================================================
+      # Extract search strings / results
+      # =========================================================
+      def extract_search_results(df):
+          search_results = []
+          database_rows = []
+          for idx, row in df.iterrows():
+              for col_idx, cell in enumerate(row):
+                  if pd.notna(cell) and str(cell).strip().lower() == 'database':
+                      database_rows.append((idx, col_idx))
+                      break
+          if not database_rows:
+              return pd.DataFrame(), 0
+          header_row, header_col = database_rows[0]
+          if header_col + 3 >= len(df.columns):
+              return pd.DataFrame(), 0
+          database_col = header_col
+          scope_col = header_col + 1
+          hits_col = header_col + 2
+          query_col = header_col + 3
+          data_rows = []
+          current_row = header_row + 1
+          s_no = 1
+          while current_row < len(df):
+              database_val = df.iloc[current_row, database_col] if database_col < len(df.columns) else None
+              scope_val = df.iloc[current_row, scope_col] if scope_col < len(df.columns) else None
+              query_val = df.iloc[current_row, query_col] if query_col < len(df.columns) else None
+              hits_val = df.iloc[current_row, hits_col] if hits_col < len(df.columns) else None
+              if pd.isna(database_val) or str(database_val).strip() == '':
+                  break
+              data_rows.append({
+                  'S/No': s_no,
+                  'Database': str(database_val).strip(),
+                  'Scope': str(scope_val).strip() if pd.notna(scope_val) else '',
+                  'Query': str(query_val).strip() if pd.notna(query_val) else '',
+                  'Hits': str(hits_val).strip() if pd.notna(hits_val) else ''
+              })
+              s_no += 1
+              current_row += 1
+          search_df = pd.DataFrame(data_rows)
+          total_hits = 0
+          for hits in search_df['Hits']:
+              try:
+                  hits_clean = str(hits).replace(',', '').strip()
+                  if hits_clean.isdigit():
+                      total_hits += int(hits_clean)
+              except:
+                  continue
+          return search_df, total_hits
+
+      search_results_df, total_search_hits = extract_search_results(df)
+
+      # =========================================================
+      # Process references
+      # =========================================================
+      def process_reference(rank_cell, is_related=False):
+          ref = Reference()
+          ref.Rank = rank_cell
+          current_row, current_col = rank_cell_coords
+          if not is_related:
+              ref.RawPublicationNumber = str(df.iloc[current_row-9, current_col])
+              ref.PublicationNumber = clean_publication_number(df.iloc[current_row-9, current_col])
+              ref.PriorityDate = format_date(current_row-8, current_col) #Feb10
+              ref.FilingDate = format_date(current_row-7, current_col) #Feb10
+              ref.PublicationDate = format_date(current_row-6, current_col) #Feb10
+              ref.OriginalAssignee = str(df.iloc[current_row-4, current_col]) #Oct15
+              ref.CurrentAssignee = str(df.iloc[current_row-5, current_col]) #Oct 15
+              ref.Title = str(df.iloc[current_row-3, current_col]).strip()
+              ref.URL = str(df.iloc[current_row-2, current_col])
+              ref.isNPL = False if "patents.google" in ref.URL else True
+              top_references.append(ref)
+          else:
+              ref.URL = str(df.iloc[current_row-2, current_col])
+              ref.isNPL = False if "patents.google" in ref.URL else True
+              ref.Title = str(df.iloc[current_row-3, current_col]).strip()
+              # Fix NaN handling for assignees (NPLs) #NEW HERE (Oct8)
+              orig_assignee = df.iloc[current_row-4, current_col]
+              curr_assignee = df.iloc[current_row-5, current_col]
+              ref.OriginalAssignee = str(orig_assignee) if pd.notna(orig_assignee) else ""
+              ref.CurrentAssignee = str(curr_assignee) if pd.notna(curr_assignee) else ""
+              #UP TO HERE
+              ref.PublicationNumber = clean_publication_number(df.iloc[current_row-9, current_col])
+              related_references.append(ref)
+
+      # =========================================================
+      # Rank helpers for normal refs + system prior art nested refs
+      # =========================================================
+      def clean_text(value):
+          if pd.isna(value):
+              return ""
+          s = str(value).strip()
+          return "" if s.lower() == "nan" else s
+
+      def normalize_rank(rank_value):
+          return clean_text(rank_value).strip()
+
+      def is_normal_letter_rank(rank_value):
+          """
+          Matches:
+          A
+          B
+          C
+          """
+          r = normalize_rank(rank_value).upper()
+          return bool(re.fullmatch(r"[A-Z]", r))
+
+      def get_system_parent_info(rank_value):
+          """
+          Matches parent system prior art ranks like:
+          [F. "SystemPriorArtName]
+          [A. "SystemPriorArtName]
+          [B. “SystemPriorArtName”]
+
+          Returns:
+          ("F", "SystemPriorArtName")
+          or None
+          """
+          r = normalize_rank(rank_value)
+
+          # Needs: optional [, letter, dot, quote, name
+          match = re.match(r'^\[?\s*([A-Z])\.\s*["“](.+?)\s*\]?$', r, re.IGNORECASE)
+          if not match:
+              return None
+
+          letter = match.group(1).upper()
+          name = match.group(2).strip()
+
+          # Clean trailing quote/bracket if present
+          name = name.strip().strip('"').strip("”").strip("]").strip()
+
+          return letter, name
+
+      def is_system_parent_rank(rank_value):
+          return get_system_parent_info(rank_value) is not None
+
+      def is_system_child_rank(rank_value):
+          """
+          Matches:
+          F.1
+          F.2
+          A.1
+          B.3
+          """
+          r = normalize_rank(rank_value).upper()
+          return bool(re.fullmatch(r"[A-Z]\.\d+", r))
+
+      def get_rank_parent_letter(rank_value):
+          r = normalize_rank(rank_value).upper()
+
+          if is_normal_letter_rank(r):
+              return r
+
+          if is_system_child_rank(r):
+              return r.split(".")[0]
+
+          parent_info = get_system_parent_info(rank_value)
+          if parent_info:
+              return parent_info[0]
+
+          return ""
+
+      def get_child_number(rank_value):
+          r = normalize_rank(rank_value).upper()
+          if is_system_child_rank(r):
+              return int(r.split(".")[1])
+          return 0
+
+      def is_archive_link(url):
+          return "web.archive.org" in clean_text(url).lower()
+
+      def is_video_link(url):
+          url_lower = clean_text(url).lower()
+          video_domains = [
+              "youtube.com",
+              "youtu.be",
+              "vimeo.com",
+              "dailymotion.com",
+              "facebook.com/watch",
+              "tiktok.com",
+          ]
+          return any(domain in url_lower for domain in video_domains)
+
+
+      # =========================================================
+      # Extract references from Rank rows
+      # =========================================================
+      rank_header_row = df[df[0] == 'Rank'].index[0]
+      current_col = 1
+
+      while current_col < df.shape[1]:
+          current_row = rank_header_row
+
+          while current_row < df.shape[0]:
+              cell_value = df.iloc[current_row, current_col]
+
+              if pd.isna(cell_value):
+                  break
+
+              rank_text = normalize_rank(cell_value)
+
+              if (
+                  is_normal_letter_rank(rank_text)
+                  or is_system_parent_rank(rank_text)
+                  or is_system_child_rank(rank_text)
+              ):
+                  rank_cell_coords = (current_row, current_col)
+                  process_reference(rank_text, is_related=False)
+
+              elif rank_text in ['RR', 'RR NPL']:
+                  rank_cell_coords = (current_row, current_col)
+                  process_reference(rank_text, is_related=True)
+
+              current_row += 3
+
+          current_col += 1
+
+      include_other_related_references = len(related_references) > 0
+
+      # =========================================================
+      # Utilities for placeholder replacement and table row cloning
+      # =========================================================
+      def replace_in_paragraphs_and_tables(doc, replacements):
+          for p in doc.paragraphs:
+              for key, val in replacements.items():
+                  if key in p.text:
+                      inline = p.runs
+                      text = "".join(run.text for run in inline)
+                      text = text.replace(key, val)
+                      for i in range(len(inline) - 1, -1, -1):
+                          p.runs[i].text = ""
+                      if not inline:
+                          p.add_run(text)
+                      else:
+                          p.runs[0].text = text
+          for table in doc.tables:
+              for row in table.rows:
+                  for cell in row.cells:
+                      for p in cell.paragraphs:
+                          for key, val in replacements.items():
+                              if key in p.text:
+                                  inline = p.runs
+                                  text = "".join(run.text for run in inline)
+                                  text = text.replace(key, val)
+                                  for i in range(len(inline) - 1, -1, -1):
+                                      p.runs[i].text = ""
+                                  if not inline:
+                                      p.add_run(text)
+                                  else:
+                                      p.runs[0].text = text
+
+      def replace_in_textboxes(doc, replacements):
+          parts = [doc.part]
+          for section in doc.sections:
+              try:
+                  if section.header:
+                      parts.append(section.header.part)
+              except Exception:
+                  pass
+              try:
+                  if section.footer:
+                      parts.append(section.footer.part)
+              except Exception:
+                  pass
+          for part in parts:
+              root = part.element
+              tx_nodes = root.xpath(".//*[local-name()='txbxContent']//*[local-name()='t']")
+              for t in tx_nodes:
+                  if t.text:
+                      for key, val in replacements.items():
+                          if key in t.text:
+                              t.text = t.text.replace(key, val)
+
+      def find_paragraph_with_placeholder(doc, placeholder):
+          for p in doc.paragraphs:
+              if placeholder in p.text:
+                  return p
+          for table in doc.tables:
+              for row in table.rows:
+                  for cell in row.cells:
+                      for p in cell.paragraphs:
+                          if placeholder in p.text:
+                              return p
+          return None
+
+      def find_table_with_placeholder(doc, placeholder):
+          for table in doc.tables:
+              for row in table.rows:
+                  for cell in row.cells:
+                      if any(placeholder in p.text for p in cell.paragraphs):
+                          return table
+          return None
+
+      # Helper: find paragraph containing specific text (case-insensitive)
+      def find_paragraph_contains(doc, text_lower):
+          search_text = text_lower.lower()
+          for p in doc.paragraphs:
+              if search_text in (p.text or '').lower():
+                  return p
+          return None
+
+      # Helper: find the first table after a given paragraph
+      def find_next_table_after(doc, paragraph):
+          if paragraph is None:
+              return None
+          body = doc.element.body
+          elems = list(body)
+          try:
+              idx = elems.index(paragraph._p)
+          except ValueError:
+              return None
+          for i in range(idx + 1, len(elems)):
+              el = elems[i]
+              if el.tag.endswith('tbl'):
+                  from docx.table import Table
+                  return Table(el, paragraph._parent)
+          return None
+
+      def find_row_with_placeholder(table, placeholder):
+          for row in table.rows:
+              for cell in row.cells:
+                  if any(placeholder in p.text for p in cell.paragraphs):
+                      return row
+          return None
+
+      def clone_row_after(table, template_row):
+          tbl = table._tbl
+          tr = template_row._tr
+          new_tr = deepcopy(tr)
+          tbl.append(new_tr)
+          return table.rows[-1]
+
+      def clear_cell(cell):
+          for p in cell.paragraphs:
+              for r in p.runs:
+                  r.text = ""
+              if len(p.runs) == 0:
+                  p.add_run("")
+
+      def set_cell_text(cell, text, bold=False, size=10, color_rgb=None):
+          clear_cell(cell)
+          p = cell.paragraphs[0]
+          run = p.runs[0]
+          run.text = text
+          run.font.name = 'Inter'
+          run.font.size = Pt(size)
+          run.bold = bold
+          if color_rgb:
+              run.font.color.rgb = color_rgb
+
+      def add_hyperlink_to_paragraph(doc, paragraph, url, text, size=10):
+          part = doc.part
+          r_id = part.relate_to(url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+          hyperlink = OxmlElement('w:hyperlink')
+          hyperlink.set(qn('r:id'), r_id)
+          hyperlink.set(qn('w:anchor'), '')  # Add empty anchor attribute for validity
+          run_element = OxmlElement('w:r')
+          run_props = OxmlElement('w:rPr')
+          font_element = OxmlElement('w:rFonts')
+          font_element.set(qn('w:ascii'), 'Inter')
+          font_element.set(qn('w:hAnsi'), 'Inter')
+          font_element.set(qn('w:cs'), 'Inter')
+          run_props.append(font_element)
+          size_element = OxmlElement('w:sz')
+          size_element.set(qn('w:val'), str(size * 2))  # Word uses half-points, so multiply by 2
+          run_props.append(size_element)
+          size_cs_element = OxmlElement('w:szCs')
+          size_cs_element.set(qn('w:val'), str(size * 2))
+          run_props.append(size_cs_element)
+          color_element = OxmlElement('w:color')
+          color_element.set(qn('w:val'), '0070C0') #March2
+          run_props.append(color_element)
+          underline_element = OxmlElement('w:u')
+          underline_element.set(qn('w:val'), 'single')
+          run_props.append(underline_element)
+          run_element.append(run_props)
+          text_element = OxmlElement('w:t')
+          text_element.text = text
+          run_element.append(text_element)
+          hyperlink.append(run_element)
+          paragraph._p.append(hyperlink)
+
+      def format_claims_list(claims_text_joined: str) -> str:
+          claims = [c.strip() for c in claims_text_joined.split(",") if c.strip()]
+          if len(claims) > 1:
+              return ", ".join(claims[:-1]) + ", and " + claims[-1]
+          elif claims:
+              return claims[0]
+          else:
+              return ""
+      #NEW HERE
+      def format_claims_as_ranges(claim_numbers_list):
+          """
+          Convert list of claim numbers to range format.
+          Example: [1,2,3,5,6,10] -> "1-3, 5, 6, and 10"
+          Example: [1,2,3,4,5] -> "1-5"
+          """
+          if not claim_numbers_list:
+              return ""
+
+          # Convert to integers and sort
+          nums = sorted([int(c) for c in claim_numbers_list])
+
+          if len(nums) == 1:
+              return str(nums[0])
+
+          ranges = []
+          start = nums[0]
+          end = nums[0]
+
+          for i in range(1, len(nums)):
+              if nums[i] == end + 1:
+                  end = nums[i]
+              else:
+                  if start == end:
+                      ranges.append(str(start))
+                  elif end == start + 1:
+                      ranges.append(str(start))
+                      ranges.append(str(end))
+                  else:
+                      ranges.append(f"{start}-{end}")
+                  start = nums[i]
+                  end = nums[i]
+
+          # Handle last range
+          if start == end:
+              ranges.append(str(start))
+          elif end == start + 1:
+              ranges.append(str(start))
+              ranges.append(str(end))
+          else:
+              ranges.append(f"{start}-{end}")
+
+          # Format with commas and "and"
+          if len(ranges) == 1:
+              return ranges[0]
+          elif len(ranges) == 2:
+              return f"{ranges[0]} and {ranges[1]}"
+          else:
+              return ", ".join(ranges[:-1]) + f", and {ranges[-1]}"
+      #UP TO HERE
+
+      # =========================================================
+      # 1) TITLE PAGE placeholders
+      # =========================================================
+      import re
+
+      pub_number_raw = extract_patent_number(df.iloc[1, 0]) #NEW HERE
+      assignee = str(df.iloc[1, 3]) if pd.notna(df.iloc[1, 3]) else ""
+      title = str(df.iloc[1, 4]) if pd.notna(df.iloc[1, 4]) else ""
+
+      pub_number_display = format_patent_display(pub_number_raw, include_prefix=True) #Oct27
+
+      current_date_str = datetime.now().strftime("%B %d, %Y").upper() #Oct15
+
+      # Extract client name from excel_filename
+      # Pattern: "[OptionalText]ProjectCode-Number ClientName PatentNumber[OptionalText].xlsx"
+      client_name = ""
+      if excel_filename:
+          # Match project code (alphanumeric + hyphen + digits), client name (letters, spaces, or symbols, not starting with US), and patent number
+          match = re.match(r".*?([A-Za-z0-9]+-\d+)\s*([A-Za-z\s][A-Za-z\s\.\-&]*?)\s*([A-Z]{2}\d+[A-Z]?\d*|US\d+|\d+)(?:.*)?\.xlsx", excel_filename, re.IGNORECASE) #Oct27
+          if match:
+              client_name = match.group(2).strip().upper() #UPDATE
+              # print(f"[DEBUG] Filename: {excel_filename}, Regex Match: ProjectCode={match.group(1)}, ClientName={match.group(2)}, PatentNumber={match.group(3)}")
+          else:
+              client_name = "Unknown Client"  # Fallback if pattern doesn't match
+              # print(f"[DEBUG] Filename: {excel_filename}, Regex Match Failed: No client name extracted, using fallback 'Unknown Client'")
+
+      title_replacements = {
+          "[DATE]": current_date_str,
+          "[CLIENT]": client_name,
+          "[PUBLICATION_NUMBER]": pub_number_display or "",
+          "[ASSIGNEE]": assignee or "",
+          "[PATENT_TITLE]": title or "",
+          "[SHORT_PATENT_NAME]": short_patent_name,
+          "[SHORT_PATENT_NAME_V2]": short_patent_name_v2,
+          "[SHORT_PATENT_NAME_LOWER]": short_patent_name_lower, #NEW HERE
+      }
+
+      # In Completion mode, generate front sections into a fresh document
+      if completion_mode and 'gen_doc' in locals():
+          target_doc = gen_doc
+          print(f"🔧 Using gen_doc as target document for section generation")
+      else:
+          target_doc = doc
+          print(f"🔧 Using doc as target document for section generation")
+
+      replace_in_textboxes(target_doc, title_replacements)
+      replace_in_paragraphs_and_tables(target_doc, title_replacements)
+
+      # =========================================================
+      # 2) OBJECTIVES section
+      # =========================================================
+      #Oct27
+      if PatentAtIssue_Number.upper().startswith("US"):
+          formatted_name = format_number_with_commas(PatentAtIssue_Number[2:])
+          patent_prefix = "U.S. Patent No. "
+      else:
+          formatted_name = PatentAtIssue_Number
+          patent_prefix = ""  # NO prefix for non-US patents
+      claims_text_joined = format_claims_as_ranges(ClaimNumbers)
+      #UP TO HERE (Oct27)
+      obj_para = find_paragraph_with_placeholder(target_doc, "[OBJECTIVE_TEXT]")
+      if obj_para:
+          obj_para.text = ""  # clear the placeholder
+
+          # Part before the short name
+          #Oct27
+          run1 = obj_para.add_run(
+              f"This report presents the mappings of the various elements of {claim_word} {claims_text_joined} "
+              f"of {patent_prefix}{formatted_name} "
+          ) #UP TO HERE (Oct27)
+          run1.font.name = "Inter"
+          run1.font.size = Pt(10)
+
+          # Bold short_patent_name
+          run2 = obj_para.add_run(f"({short_patent_name})")
+          run2.font.name = "Inter"
+          run2.font.size = Pt(10)
+          run2.bold = True
+
+          # Closing parenthesis + rest of sentence
+          run3 = obj_para.add_run(
+              " with the most relevant disclosures found from the following references in the publication search:"
+          )
+          run3.font.name = "Inter"
+          run3.font.size = Pt(10)
+      # objective_para = (
+      #     f"This report presents the mappings of the various elements of {claim_word} {claims_text_joined} "
+      #     f"of U.S. Patent No. {formatted_name} "
+      #     f"({short_patent_name}) with the most relevant disclosures found from the following references in the publication search:"
+      # )
+      replace_in_paragraphs_and_tables(target_doc, {"[OBJECTIVE_TEXT]": obj_para})
+
+      # =========================================================
+      # Objective reference sorting helpers
+      # =========================================================
+      def rank_sort_key(ref):
+          """
+          Keeps system children directly under their parent.
+
+          Examples:
+          A                  -> A main
+          A.1                -> child under A
+          [A. "SystemName]   -> A system parent
+          """
+          letter = get_rank_parent_letter(ref.Rank)
+
+          if letter and len(letter) == 1 and "A" <= letter <= "Z":
+              letter_index = ord(letter) - ord("A")
+          else:
+              letter_index = 999
+
+          if is_system_child_rank(ref.Rank):
+              # Children go immediately after their parent
+              return (letter_index, 1, get_child_number(ref.Rank))
+
+          # Normal letter ranks and [Letter. "SystemPriorArtName] parents
+          return (letter_index, 0, 0)
+
+      sorted_references = sorted(
+          top_references,
+          key=lambda r: (rank_sort_key(r), clean_text(r.PublicationNumber), clean_text(r.Title))
+      )
+
+      # =========================================================
+      # Mapping display rank helpers
+      # Makes Mappings follow Objective display numbering
+      # and skips system parent rows like [F. "SystemName]
+      # =========================================================
+      def number_to_letter(n):
+          result = ""
+          while n > 0:
+              n -= 1
+              result = chr(ord("A") + (n % 26)) + result
+              n //= 26
+          return result
+
+
+      def build_display_rank_map(sorted_refs):
+          display_rank_map = {}
+          parent_letter_to_display = {}
+          main_counter = 0
+
+          for ref in sorted_refs:
+              raw_rank = clean_text(ref.Rank)
+              parent_letter = get_rank_parent_letter(raw_rank)
+
+              if is_system_child_rank(raw_rank):
+                  display_parent = parent_letter_to_display.get(parent_letter)
+
+                  if not display_parent:
+                      main_counter += 1
+                      display_parent = number_to_letter(main_counter)
+                      parent_letter_to_display[parent_letter] = display_parent
+
+                  display_rank_map[raw_rank] = f"{display_parent}.{get_child_number(raw_rank)}"
+
+              else:
+                  main_counter += 1
+                  display_letter = number_to_letter(main_counter)
+                  display_rank_map[raw_rank] = display_letter
+
+                  if parent_letter:
+                      parent_letter_to_display[parent_letter] = display_letter
+
+          return display_rank_map
+
+
+      reference_display_rank_map = build_display_rank_map(sorted_references)
+
+
+      def get_mapping_display_rank(ref):
+          return reference_display_rank_map.get(clean_text(ref.Rank), clean_text(ref.Rank))
+
+
+      def should_include_ref_in_mapping(ref):
+          raw_rank = clean_text(ref.Rank)
+          parent_info = get_system_parent_info(raw_rank)
+          current_letter = get_rank_parent_letter(raw_rank)
+
+          has_child_refs = any(
+              is_system_child_rank(child_ref.Rank)
+              and get_rank_parent_letter(child_ref.Rank) == current_letter
+              for child_ref in sorted_references
+          )
+
+          # Include children like F.1, F.2
+          if is_system_child_rank(raw_rank):
+              return True
+
+          # Skip system parent like [F. "SystemName]
+          # Skip fallback parent like G if G.1/G.2 exists
+          if parent_info or has_child_refs:
+              return False
+
+          # Include normal references
+          return True
+
+      # Track which letters have system children
+      system_children_by_letter = {}
+      for ref in sorted_references:
+          if is_system_child_rank(ref.Rank):
+              parent_letter = get_rank_parent_letter(ref.Rank)
+              system_children_by_letter.setdefault(parent_letter, []).append(ref)
+
+
+      # =========================================================
+      # Small rendering helpers for Objective section
+      # =========================================================
+      def style_run(run, font_name="Inter", size=10, bold=False):
+          run.font.name = font_name
+          run.font.size = Pt(size)
+          run.bold = bold
+
+      def add_detail_line(ref_anchor, text, indent_cm=1.5):
+          detail_para = ref_anchor.insert_paragraph_before(text)
+          detail_para.paragraph_format.left_indent = Cm(indent_cm)
+          detail_para.paragraph_format.space_after = Pt(0)
+          detail_para.paragraph_format.space_before = Pt(0)
+
+          if detail_para.runs:
+              style_run(detail_para.runs[0], "Inter", 10, False)
+
+          return detail_para
+
+      def get_ref_publisher(ref):
+          if clean_text(ref.CurrentAssignee):
+              return clean_text(ref.CurrentAssignee)
+          if clean_text(ref.OriginalAssignee):
+              return clean_text(ref.OriginalAssignee)
+          return ""
+
+      def get_npl_link(ref):
+          """
+          Same idea as your existing NPL link logic:
+          - DOI in PublicationNumber gets converted to doi.org
+          - URL in PublicationNumber is used
+          - otherwise use URL field
+          """
+          pub_num = clean_text(ref.PublicationNumber)
+          url = clean_text(ref.URL)
+
+          if pub_num:
+              if pub_num.startswith("10."):
+                  return f"https://doi.org/{pub_num}", "DOI: ", pub_num
+
+              if pub_num.startswith("http://") or pub_num.startswith("https://"):
+                  if "doi" in pub_num.lower() and "/10." in pub_num:
+                      doi_part = pub_num.split("/10.", 1)[1]
+                      return pub_num, "DOI: ", "10." + doi_part
+                  return pub_num, "Link: ", pub_num
+
+          if url:
+              return url, "Link: ", url
+
+          return "", "Link: ", ""
+
+
+      def render_system_child(ref_anchor, target_doc, ref, next_ref_exists=True):
+          """
+          Renders:
+            1. "Title"
+                Publisher: ...
+                Publication Date: ...
+                Retrieval Date:
+                Link: ...
+          """
+          child_no = get_child_number(ref.Rank)
+
+          # Main numbered child line
+          child_para = ref_anchor.insert_paragraph_before("")
+          child_para.paragraph_format.left_indent = Cm(2.25)
+          child_para.paragraph_format.hanging_indent = Cm(0.5)
+          child_para.paragraph_format.space_after = Pt(0)
+          child_para.paragraph_format.space_before = Pt(0)
+
+          run_num = child_para.add_run(f"{child_no}. ")
+          style_run(run_num, "Inter SemiBold", 10, True)
+
+          title_text = clean_text(ref.Title)
+          run_title = child_para.add_run(f'"{title_text}"')
+          style_run(run_title, "Inter SemiBold", 10, True)
+
+          # Publisher / Author-Publisher line
+          publisher = get_ref_publisher(ref)
+          label = "Author/Publisher: " if is_video_link(ref.URL) else "Publisher: "
+          add_detail_line(ref_anchor, f"{label}{publisher}", indent_cm=2.75)
+
+          # Publication Date or Archive Date
+          date_label = "Archive Date" if is_archive_link(ref.URL) else "Publication Date"
+          add_detail_line(ref_anchor, f"{date_label}: {clean_text(ref.PublicationDate)}", indent_cm=2.75)
+
+          # Do not show Retrieval Date for archive links
+          if not is_archive_link(ref.URL):
+              add_detail_line(ref_anchor, "Retrieval Date:", indent_cm=2.75)
+
+          # Link line must appear
+          link_url = clean_text(ref.URL)
+          link_para = ref_anchor.insert_paragraph_before("")
+          link_para.paragraph_format.left_indent = Cm(2.75)
+          link_para.paragraph_format.space_after = Pt(0)
+          link_para.paragraph_format.space_before = Pt(0)
+
+          link_label_run = link_para.add_run("Link: ")
+          style_run(link_label_run, "Inter", 10, False)
+
+          if link_url:
+              add_hyperlink_to_paragraph(target_doc, link_para, link_url, link_url)
+
+
+      def render_regular_reference_details(ref_anchor, target_doc, ref):
+          """
+          This is your existing Objective reference detail logic,
+          kept mostly the same for normal patent/NPL references.
+          """
+          if ref.isNPL:
+              pub = get_ref_publisher(ref)
+
+              is_doi_ref = False
+              pub_num = clean_text(ref.PublicationNumber)
+
+              if pub_num:
+                  if pub_num.startswith("10.") or ("doi.org" in pub_num.lower()):
+                      is_doi_ref = True
+
+              if pub:
+                  author_label = "Author: " if is_doi_ref else "Author/Publisher: "
+                  add_detail_line(ref_anchor, f"{author_label}{pub}", indent_cm=1.5)
+
+              if clean_text(ref.PublicationDate):
+                  add_detail_line(ref_anchor, f"Publication Date: {clean_text(ref.PublicationDate)}", indent_cm=1.5)
+
+              if not is_doi_ref:
+                  add_detail_line(ref_anchor, "Retrieval Date:", indent_cm=1.5)
+
+          elif clean_text(ref.PublicationNumber).startswith("US"):
+              if clean_text(ref.Title):
+                  add_detail_line(ref_anchor, f'"{clean_text(ref.Title)}"', indent_cm=1.5)
+
+              if clean_text(ref.CurrentAssignee):
+                  if clean_text(ref.CurrentAssignee) == clean_text(ref.OriginalAssignee):
+                      add_detail_line(ref_anchor, f"Original & Current Assignee: {clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+                  else:
+                      add_detail_line(ref_anchor, f"Current Assignee: {clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+
+              if clean_text(ref.OriginalAssignee):
+                  if clean_text(ref.CurrentAssignee) != clean_text(ref.OriginalAssignee):
+                      add_detail_line(ref_anchor, f"Original Assignee: {clean_text(ref.OriginalAssignee)}", indent_cm=1.5)
+
+              if clean_text(ref.PriorityDate):
+                  add_detail_line(ref_anchor, f"Priority Date: {clean_text(ref.PriorityDate)}", indent_cm=1.5)
+
+              if clean_text(ref.FilingDate):
+                  add_detail_line(ref_anchor, f"Filing Date: {clean_text(ref.FilingDate)}", indent_cm=1.5)
+
+              if clean_text(ref.PublicationDate):
+                  add_detail_line(ref_anchor, f"Publication Date: {clean_text(ref.PublicationDate)}", indent_cm=1.5)
+
+          else:
+              if clean_text(ref.Title):
+                  add_detail_line(ref_anchor, f'"{clean_text(ref.Title)}"', indent_cm=1.5)
+
+              if clean_text(ref.CurrentAssignee):
+                  if clean_text(ref.CurrentAssignee) == clean_text(ref.OriginalAssignee):
+                      add_detail_line(ref_anchor, f"Original & Current Assignee: {clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+                  else:
+                      add_detail_line(ref_anchor, f"Current Assignee: {clean_text(ref.CurrentAssignee)}", indent_cm=1.5)
+
+              if clean_text(ref.OriginalAssignee):
+                  if clean_text(ref.CurrentAssignee) != clean_text(ref.OriginalAssignee):
+                      add_detail_line(ref_anchor, f"Original Assignee: {clean_text(ref.OriginalAssignee)}", indent_cm=1.5)
+
+              if clean_text(ref.PriorityDate):
+                  add_detail_line(ref_anchor, f"Priority Date: {clean_text(ref.PriorityDate)}", indent_cm=1.5)
+
+              if clean_text(ref.FilingDate):
+                  add_detail_line(ref_anchor, f"Filing Date: {clean_text(ref.FilingDate)}", indent_cm=1.5)
+
+              if clean_text(ref.PublicationDate):
+                  add_detail_line(ref_anchor, f"Publication Date: {clean_text(ref.PublicationDate)}", indent_cm=1.5)
+
+          # Existing DOI / Link line for NPL references
+          if ref.isNPL:
+              link_url, display_label, display_text = get_npl_link(ref)
+
+              if link_url:
+                  link_para = ref_anchor.insert_paragraph_before("")
+                  link_para.paragraph_format.left_indent = Cm(1.5)
+                  link_para.paragraph_format.space_after = Pt(0)
+                  link_para.paragraph_format.space_before = Pt(0)
+
+                  link_label_run = link_para.add_run(display_label)
+                  style_run(link_label_run, "Inter", 10, False)
+
+                  add_hyperlink_to_paragraph(
+                      target_doc,
+                      link_para,
+                      link_url,
+                      display_text if display_text else link_url
+                  )
+
+
+      # =========================================================
+      # Render Objective reference list
+      # =========================================================
+      ref_anchor = find_paragraph_with_placeholder(target_doc, "[REFERENCE_LIST]")
+
+      if ref_anchor:
+          ref_anchor.text = ""
+
+          # Create or modify numbering definition for lettered list
+          from docx.oxml import OxmlElement
+          from docx.oxml.ns import qn
+
+          numbering_part = target_doc.part.numbering_part
+          if numbering_part is None:
+              from docx.parts.numbering import NumberingPart
+              numbering_part = NumberingPart.new()
+              target_doc.part.relate_to(
+                  numbering_part,
+                  'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering'
+              )
+
+          # Clear any existing numbering definitions to avoid conflicts
+          abstract_nums = numbering_part.element.findall(f'.//{qn("w:abstractNum")}')
+          for abstract_num in abstract_nums:
+              numbering_part.element.remove(abstract_num)
+
+          nums = numbering_part.element.findall(f'.//{qn("w:num")}')
+          for num in nums:
+              numbering_part.element.remove(num)
+
+          # Create abstract numbering definition for letters A, B, C...
+          abstractNum = OxmlElement('w:abstractNum')
+          abstractNum.set(qn('w:abstractNumId'), '1')
+          abstractNum.set(qn('w:restartNumberingAfterBreak'), '0')
+          abstractNum.set(qn('w:multiLevelType'), 'hybridMultilevel')
+
+          lvl = OxmlElement('w:lvl')
+          lvl.set(qn('w:ilvl'), '0')
+
+          numFmt = OxmlElement('w:numFmt')
+          numFmt.set(qn('w:val'), 'upperLetter')
+          lvl.append(numFmt)
+
+          start = OxmlElement('w:start')
+          start.set(qn('w:val'), '1')
+          lvl.append(start)
+
+          lvlText = OxmlElement('w:lvlText')
+          lvlText.set(qn('w:val'), '%1.')
+          lvl.append(lvlText)
+
+          lvlJc = OxmlElement('w:lvlJc')
+          lvlJc.set(qn('w:val'), 'left')
+          lvl.append(lvlJc)
+
+          pPr = OxmlElement('w:pPr')
+          ind = OxmlElement('w:ind')
+          ind.set(qn('w:left'), '851')
+          ind.set(qn('w:hanging'), '425')
+          pPr.append(ind)
+          lvl.append(pPr)
+
+          rPr = OxmlElement('w:rPr')
+          rFonts = OxmlElement('w:rFonts')
+          rFonts.set(qn('w:ascii'), 'Inter SemiBold')
+          rFonts.set(qn('w:hAnsi'), 'Inter SemiBold')
+          rFonts.set(qn('w:cs'), 'Inter SemiBold')
+          rPr.append(rFonts)
+
+          bold = OxmlElement('w:b')
+          rPr.append(bold)
+
+          sz = OxmlElement('w:sz')
+          sz.set(qn('w:val'), '20')
+          rPr.append(sz)
+
+          szCs = OxmlElement('w:szCs')
+          szCs.set(qn('w:val'), '20')
+          rPr.append(szCs)
+
+          lvl.append(rPr)
+          abstractNum.append(lvl)
+          numbering_part.element.append(abstractNum)
+
+          # Default numbering definition
+          default_abstract = OxmlElement('w:abstractNum')
+          default_abstract.set(qn('w:abstractNumId'), '0')
+
+          default_lvl = OxmlElement('w:lvl')
+          default_lvl.set(qn('w:ilvl'), '0')
+
+          default_numFmt = OxmlElement('w:numFmt')
+          default_numFmt.set(qn('w:val'), 'decimal')
+          default_lvl.append(default_numFmt)
+
+          default_lvlText = OxmlElement('w:lvlText')
+          default_lvlText.set(qn('w:val'), '%1.')
+          default_lvl.append(default_lvlText)
+
+          default_abstract.append(default_lvl)
+          numbering_part.element.append(default_abstract)
+
+          # Concrete numbering instance
+          num = OxmlElement('w:num')
+          num.set(qn('w:numId'), '1')
+
+          abstractNumId = OxmlElement('w:abstractNumId')
+          abstractNumId.set(qn('w:val'), '1')
+          num.append(abstractNumId)
+
+          numbering_part.element.append(num)
+
+          if target_doc.part.numbering_part is None:
+              target_doc.part.relate_to(
+                  numbering_part,
+                  'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering'
+              )
+
+          for i, ref in enumerate(sorted_references):
+              isUSPatent(ref)
+
+              # System child ranks like F.1, F.2 are rendered as nested items, not main letters
+              if is_system_child_rank(ref.Rank):
+                  render_system_child(
+                      ref_anchor,
+                      target_doc,
+                      ref,
+                      next_ref_exists=(i < len(sorted_references) - 1)
+                  )
+
+                  # Add normal spacing after the last child before the next main reference
+                  if i < len(sorted_references) - 1:
+                      next_ref = sorted_references[i + 1]
+
+                      current_letter = get_rank_parent_letter(ref.Rank)
+                      next_letter = get_rank_parent_letter(next_ref.Rank)
+
+                      # No spacer between D.1 and D.2, but spacer after D.2 before E
+                      if not (is_system_child_rank(next_ref.Rank) and current_letter == next_letter):
+                          spacer = ref_anchor.insert_paragraph_before("")
+                          spacer.paragraph_format.left_indent = Cm(1.5)
+                          spacer.paragraph_format.space_after = Pt(0)
+                          spacer.paragraph_format.space_before = Pt(0)
+
+                  continue
+
+              # Main lettered paragraph
+              main_para = ref_anchor.insert_paragraph_before()
+
+              if main_para._p.pPr is not None:
+                  main_para._p.remove(main_para._p.pPr)
+
+              main_para.paragraph_format.left_indent = Cm(1.5)
+              main_para.paragraph_format.hanging_indent = Cm(0.75)
+              main_para.paragraph_format.space_after = Pt(0)
+              main_para.paragraph_format.space_before = Pt(18) if i == 0 else Pt(0)
+
+              # Apply custom lettered numbering
+              pPr = main_para._p.get_or_add_pPr()
+
+              numPr = OxmlElement('w:numPr')
+
+              ilvl = OxmlElement('w:ilvl')
+              ilvl.set(qn('w:val'), '0')
+
+              numId = OxmlElement('w:numId')
+              numId.set(qn('w:val'), '1')
+
+              numPr.append(ilvl)
+              numPr.append(numId)
+              pPr.append(numPr)
+
+              jc = OxmlElement('w:jc')
+              jc.set(qn('w:val'), 'left')
+              pPr.append(jc)
+
+              # Determine main display text
+              parent_info = get_system_parent_info(ref.Rank)
+
+              if parent_info:
+                  # Preferred system parent format:
+                  # [F. "SystemPriorArtName]
+                  system_name = parent_info[1]
+                  pub_text = f'"{system_name}"'
+
+              elif ref.isNPL:
+                  pub_text = f'"{clean_text(ref.Title)}"'
+
+              elif clean_text(ref.PublicationNumber).startswith("US"):
+                  if '/' in (ref.PublicationName or ""):
+                      pub_text = f"U.S. Pat. App. Pub. No. {ref.PublicationName}"
+                  else:
+                      pub_text = f"U.S. Patent No. {ref.PublicationName or ''}"
+
+              else:
+                  pub_text = clean_text(ref.PublicationNumber)
+
+              run_pub = main_para.add_run(pub_text)
+              style_run(run_pub, "Inter SemiBold", 10, True)
+
+              # If this is [F. "SystemPriorArtName] OR a fallback parent like F with F.1/F.2 children,
+              # render only the parent Publisher line.
+              current_letter = get_rank_parent_letter(ref.Rank)
+              has_child_refs = any(
+                  is_system_child_rank(child_ref.Rank)
+                  and get_rank_parent_letter(child_ref.Rank) == current_letter
+                  for child_ref in sorted_references
+              )
+
+              if parent_info or has_child_refs:
+                  publisher = get_ref_publisher(ref)
+                  add_detail_line(ref_anchor, f"Publisher: {publisher}", indent_cm=1.5)
+
+              else:
+                  # Normal A/B/C/D/E-style rendering stays the same
+                  render_regular_reference_details(ref_anchor, target_doc, ref)
+
+              # Spacer after main references only if next item is another main reference.
+              # Do not add a spacer here if the next item is F.1 / A.1, because the child should sit under this parent.
+              if i < len(sorted_references) - 1:
+                  next_ref = sorted_references[i + 1]
+
+                  current_letter = get_rank_parent_letter(ref.Rank)
+                  next_letter = get_rank_parent_letter(next_ref.Rank)
+
+                  if not (is_system_child_rank(next_ref.Rank) and current_letter == next_letter):
+                      spacer = ref_anchor.insert_paragraph_before("")
+                      spacer.paragraph_format.left_indent = Cm(1.5)
+                      spacer.paragraph_format.space_after = Pt(0)
+                      spacer.paragraph_format.space_before = Pt(0)
+
+          # Remove the anchor and any empty paragraphs after it
+          if ref_anchor:
+              parent = ref_anchor._element.getparent()
+              anchor_index = list(parent).index(ref_anchor._element)
+
+              parent.remove(ref_anchor._element)
+
+              while anchor_index < len(parent):
+                  elem = parent[anchor_index]
+
+                  if elem.tag.endswith('p'):
+                      text_content = ''.join(elem.itertext()).strip()
+
+                      if not text_content:
+                          parent.remove(elem)
+                      else:
+                          break
+                  else:
+                      break
+
+      #NEW HERE
+      # =========================================================
+      # 3) OTHER RELATED REFERENCES table
+      # =========================================================
+      def add_page_break_before_paragraph(doc, target_paragraph):
+          """Add a page break before the specified paragraph"""
+          from docx.oxml import OxmlElement
+          from docx.oxml.ns import qn
+
+          # Create a page break element
+          page_break = OxmlElement('w:br')
+          page_break.set(qn('w:type'), 'page')
+
+          # Create a new run element with the page break
+          run_element = OxmlElement('w:r')
+
+          # Add proper run properties
+          rPr = OxmlElement('w:rPr')
+          rFonts = OxmlElement('w:rFonts')
+          rFonts.set(qn('w:ascii'), 'Inter')
+          rFonts.set(qn('w:hAnsi'), 'Inter')
+          rFonts.set(qn('w:cs'), 'Inter')
+          rPr.append(rFonts)
+          run_element.append(rPr)
+
+          run_element.append(page_break)
+
+          # Insert the page break at the beginning of the target paragraph
+          target_paragraph._p.insert(0, run_element)
+
+      # "Other Related References"
+      if include_other_related_references:
+          table_rr = find_table_with_placeholder(target_doc, "**[REF_INDEX]**") or find_table_with_placeholder(target_doc, "[REF_ENTRY]") or find_table_with_placeholder(target_doc, "[REF_OWNER]")
+          if table_rr:
+              # Add page break before "Other Related References" heading
+              other_refs_heading = None
+              for paragraph in target_doc.paragraphs:
+                  if "other related references" in paragraph.text.lower():
+                      other_refs_heading = paragraph
+                      break
+              if other_refs_heading:#Nov7
+                          add_page_break_before_paragraph(target_doc, other_refs_heading) #Nov7
+              # Ensure an ORR header is immediately before the ORR table.
+              # If not present, insert one right above the table (no page breaks, no movement of other sections).
+              try:
+                  from docx.text.paragraph import Paragraph
+                  from docx.oxml import OxmlElement
+                  from docx.oxml.ns import qn
+                  body = target_doc.element.body
+                  elems = list(body)
+                  tbl_idx = elems.index(table_rr._tbl)
+                  prev_is_header = False
+                  if tbl_idx - 1 >= 0 and elems[tbl_idx - 1].tag.endswith('p'):
+                      prev_p = Paragraph(elems[tbl_idx - 1], target_doc)
+                      prev_is_header = (prev_p.text or '').strip().lower() == 'other related references found'
+                  if not prev_is_header:
+                      new_p = OxmlElement('w:p')
+                      r = OxmlElement('w:r')
+                      rPr = OxmlElement('w:rPr')
+                      rFonts = OxmlElement('w:rFonts')
+                      rFonts.set(qn('w:ascii'), 'Inter')
+                      rFonts.set(qn('w:hAnsi'), 'Inter')
+                      rFonts.set(qn('w:cs'), 'Inter')
+                      rPr.append(rFonts)
+                      b = OxmlElement('w:b')
+                      rPr.append(b)
+                      sz = OxmlElement('w:sz')
+                      sz.set(qn('w:val'), '20')  # 10pt
+                      rPr.append(sz)
+                      szCs = OxmlElement('w:szCs')
+                      szCs.set(qn('w:val'), '20')
+                      rPr.append(szCs)
+                      color = OxmlElement('w:color')
+                      color.set(qn('w:val'), '000000')
+                      rPr.append(color)
+                      r.append(rPr)
+                      t = OxmlElement('w:t')
+                      t.text = 'OTHER RELATED REFERENCES FOUND'
+                      r.append(t)
+                      pPr = OxmlElement('w:pPr')
+                      spacing = OxmlElement('w:spacing')
+                      spacing.set(qn('w:after'), '160')  # 8pt
+                      spacing.set(qn('w:line'), '216')   # 1.08 * 200
+                      spacing.set(qn('w:lineRule'), 'auto')
+                      pPr.append(spacing)
+                      new_p.append(pPr)
+                      new_p.append(r)
+                      table_rr._tbl.addprevious(new_p)
+              except Exception:
+                  pass
+
+              row_template = find_row_with_placeholder(table_rr, "**[REF_INDEX]**") or table_rr.rows[-1]
+              granted_us_patents, us_applications, foreign_patents, npl_references = [], [], [], []
+              #Oct27 NEW
+              for ref in related_references:
+                  isUSPatent(ref)
+                  if ref.isNPL:
+                      npl_references.append(ref)
+                  elif ref.PublicationNumber.startswith("US"):  # Check if it's actually US
+                      if ref.PublicationName and '/' not in str(ref.PublicationName):
+                          granted_us_patents.append(ref)
+                      else:
+                          us_applications.append(ref)
+                  else:
+                      foreign_patents.append(ref)  # Non-US patents go here
+
+              sorted_related_refs = granted_us_patents + us_applications + foreign_patents + npl_references
+              #UP TO HERE (Oct27) NEW
+              def render_ref_into_row(row_cells, idx, ref_obj):
+                  from docx.enum.table import WD_ALIGN_VERTICAL
+                  for cell in row_cells:
+                      cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+                  set_cell_text(row_cells[0], str(idx), size=9, bold=True)
+                  if ref_obj.isNPL:
+                      clear_cell(row_cells[1])
+                      p1 = row_cells[1].paragraphs[0]
+                      r = p1.add_run(f'"{ref_obj.Title}"')
+                      r.font.name = 'Inter'
+                      r.font.size = Pt(9)
+              # Determine link URL: prioritize DOI from PublicationNumber, fallback to URL field
+              #Feb11
+                      link_url = None
+                      pub_num = ref_obj.PublicationNumber
+
+                      if pub_num and pub_num.lower() != "nan":
+                          # Case 1: Raw DOI (starts with "10.")
+                          if str(pub_num).startswith("10."):
+                              link_url = f"https://doi.org/{pub_num}"
+                          # Case 2: Already a URL
+                          elif str(pub_num).startswith("http://") or str(pub_num).startswith("https://"):
+                              link_url = pub_num
+
+                      # Fallback to URL field if no DOI found
+                      if not link_url and ref_obj.URL and ref_obj.URL.lower() != "nan":
+                          link_url = ref_obj.URL
+
+                      # Add hyperlink if we have a valid URL
+                      if link_url:
+                          p2 = row_cells[1].add_paragraph()
+                          p2.add_run("[")
+                          add_hyperlink_to_paragraph(target_doc, p2, link_url, "Link", size=9)
+                          p2.add_run("]")
+                          apply_font_style(p2, size=9)
+                #Feb11 UP to here
+                  else:
+                      if ref_obj.PublicationNumber and ref_obj.PublicationNumber.startswith("US"):
+                          if ref_obj.PublicationName and '/' in str(ref_obj.PublicationName):
+                              pub_text = f"U.S. Pat. App. Pub. No. {ref_obj.PublicationName}"
+                          else:
+                              pub_text = f"U.S. Patent No. {ref_obj.PublicationName or ''}"
+                      else:
+                          pub_text = ref_obj.PublicationNumber or "Unknown Patent Number"
+                      set_cell_text(row_cells[1], pub_text, size=9)
+                  auth = ref_obj.CurrentAssignee if ref_obj.CurrentAssignee else ref_obj.OriginalAssignee
+                  if auth == "nan" or auth == "":
+                      auth = ""
+                  #Feb24
+                  # Fix: Remove extra space before commas
+                  auth = auth.replace(" ,", ",")
+                  set_cell_text(row_cells[2], auth or "", size=9)
+                  #Feb24 Up to here
+              if sorted_related_refs:
+                  render_ref_into_row(row_template.cells, 1, sorted_related_refs[0])
+                  for idx, ref in enumerate(sorted_related_refs[1:], start=2):
+                      new_row = clone_row_after(table_rr, row_template)
+                      render_ref_into_row(new_row.cells, idx, ref)
+              else:
+                  for cell in row_template.cells:
+                      clear_cell(cell)
+
+      else:
+          # NO RELATED REFERENCES - Keep section heading but show "None found" message
+          # Find the "Other Related References" heading
+          other_refs_heading = None
+          for paragraph in target_doc.paragraphs:
+              if "other related references" in paragraph.text.lower():
+                  other_refs_heading = paragraph
+                  break
+
+          if other_refs_heading:
+              # Add page break before "Other Related References" heading
+              add_page_break_before_paragraph(doc, other_refs_heading)
+
+          # Find and clear the table with placeholders
+          table_rr = find_table_with_placeholder(target_doc, "**[REF_INDEX]**") or find_table_with_placeholder(target_doc, "[REF_ENTRY]") or find_table_with_placeholder(target_doc, "[REF_OWNER]")
+          if table_rr:
+              # Keep the table but show "No related references found" message
+              row_template = find_row_with_placeholder(table_rr, "**[REF_INDEX]**") or table_rr.rows[-1]
+
+              # Clear all cells in template row
+              for cell in row_template.cells:
+                  clear_cell(cell)
+
+              # Add message in the second cell (where references would go)
+              set_cell_text(row_template.cells[0], "", size=9)
+              set_cell_text(row_template.cells[1], "No related references found in this search.", size=9)
+              set_cell_text(row_template.cells[2], "", size=9)
+
+              #UP TO HERE
+
+      # =========================================================
+      # 4) PATENT-AT-ISSUE
+      # =========================================================
+      #Oct27
+      if PatentAtIssue_Number.upper().startswith("US"):
+          patent_number_display = format_number_with_commas(PatentAtIssue_Number[2:])
+          patent_display_text = f"U.S. Patent No. {patent_number_display}"
+      else:
+          # Non-US patent - JUST the publication number, NO prefix
+          patent_display_text = PatentAtIssue_Number
+
+      assignee_display = str(df.iloc[1, 3]) if pd.notna(df.iloc[1, 3]) else ""
+      priority_display = format_date(1, 1) #Feb10
+
+      abstract_text = fetch_abstract(PatentAtIssue_Number)
+      abstract_text = abstract_text.lstrip()
+
+      patent_replacements = {
+          "[PATENT_AT_ISSUE_NUMBER]": patent_display_text,  # ← Changed this line
+          "[PATENT_AT_ISSUE_ASSIGNEE]": f"Current Assignee: {assignee_display}",
+          "[PATENT_AT_ISSUE_PRIORITY_DATE]": f"Earliest Priority Date: {priority_display}",
+          "[PATENT_AT_ISSUE_ABSTRACT]": abstract_text,
+      } #UP TO HERE (Oct27)
+      replace_in_paragraphs_and_tables(target_doc, patent_replacements)
+
+      # =========================================================
+      # 5) CRITERIA FOR THE PUBLICATION SEARCH (intro BEFORE texts, and bold)
+      # =========================================================
+
+      # Extract and preserve criteria section from edited document
+      preserved_criteria_elements = [] if completion_mode else extract_criteria_section(edited_doc)
+
+      # Filter out preserved criteria heading so we only merge content starting from the claims text
+      def _filter_preserved_criteria_elements(elements):
+          filtered = []
+          for el in elements:
+              try:
+                  if el.tag == qn('w:p'):
+                      p = Paragraph(el, edited_doc)
+                      if "criteria for the publication search" in (p.text or "").lower().strip():
+                          # Skip preserved section header
+                          continue
+              except Exception:
+                  pass
+              filtered.append(el)
+          return filtered
+
+      filtered_preserved_criteria_elements = _filter_preserved_criteria_elements(preserved_criteria_elements)
+
+      criteria_num_elements = len(preserved_criteria_elements)
+      if len(preserved_criteria_elements) > 0:
+          print(f"✓ Extracted {criteria_num_elements} elements from Criteria section.")
+      else:
+          print("⚠ No Criteria section found in edited report. Generating fresh Criteria content.")
+
+      criteria_anchor = None
+      if not completion_mode:
+          criteria_intro = f"{claim_word.capitalize()} {format_claims_as_ranges(ClaimNumbers)} of the {short_patent_name}" #NEW HERE
+          replace_in_paragraphs_and_tables(doc, {
+              "[CRITERIA_TEXT]": criteria_intro,
+              "[CRITERIA_CLAIM/S]": ""
+          })
+          #Feb24
+          mappings_overview_text = f"{claim_word} {format_claims_as_ranges(ClaimNumbers)} of the {short_patent_name_lower}"
+          replace_in_paragraphs_and_tables(doc, {
+              "[MAPPINGS_OVERVIEW]": mappings_overview_text
+          })
+          #Feb24 Up to here
+          criteria_anchor = find_paragraph_with_placeholder(doc, criteria_intro)
+          if not criteria_anchor:
+              for p in doc.paragraphs:
+                  if criteria_intro in p.text:
+                      criteria_anchor = p
+                      break
+          # Make intro bold
+          if criteria_anchor:
+              for run in criteria_anchor.runs:
+                  run.bold = True
+                  run.font.name = 'Inter'
+                  run.font.size = Pt(10)
+
+      # Check if we have preserved criteria elements from edited document
+      if not completion_mode and preserved_criteria_elements:
+          print("✓ Using preserved criteria elements")
+          # Instead of removing sections, let's just replace the criteria content in place
+          # This is safer and won't accidentally remove mapping placeholders
+
+          # Clear the original criteria content by removing the criteria anchor and everything after it
+          # until we hit the mappings section
+          if criteria_anchor:
+              # First, find a new anchor point before the criteria section
+              # Look for the paragraph that contains "CRITERIA FOR THE PUBLICATION SEARCH" heading
+              new_anchor = None
+              for p in doc.paragraphs:
+                  if "criteria for the publication search" in p.text.lower():
+                      new_anchor = p
+                      break
+
+              if new_anchor:
+                  # Remove the criteria anchor paragraph (which contains the generated claims text)
+                  criteria_anchor._element.getparent().remove(criteria_anchor._element)
+
+                  # Remove everything after the criteria heading until we hit the mappings section
+                  current_para = new_anchor._element.getnext()
+                  while current_para is not None:
+                      if current_para.tag == qn('w:p'):
+                          p = Paragraph(current_para, doc)
+                          text_lower = p.text.lower().strip()
+                          # Stop when we hit the mappings section
+                          if "mappings based on selected references" in text_lower:
+                              break
+                          # Don't remove paragraphs that contain mapping placeholders
+                          if any(placeholder in p.text for placeholder in ['[CLAIM_HEADER', '[MAPPINGS_PARAGRAPH]', '[REF_INDEX]', '[REF_ENTRY]', '[REF_OWNER]']):
+                              current_para = current_para.getnext()
+                              continue
+                      # Remove this element
+                      next_para = current_para.getnext()
+                      current_para.getparent().remove(current_para)
+                      current_para = next_para
+
+                  # Insert the preserved criteria elements after the criteria heading (skip preserved header)
+                  current_anchor = new_anchor
+                  for el in filtered_preserved_criteria_elements:
+                      new_el = insert_element_after(current_anchor, el)
+                      if new_el:
+                          current_anchor = new_el
+                  # Update last_inserted_para to point to the last inserted element from criteria section
+                  last_inserted_para = current_anchor
+              else:
+                  # Fallback: use the original criteria_anchor
+                  current_anchor = criteria_anchor
+                  for el in filtered_preserved_criteria_elements:
+                      new_el = insert_element_after(current_anchor, el)
+                      if new_el:
+                          current_anchor = new_el
+                  last_inserted_para = current_anchor
+          else:
+              # Fallback if no criteria_anchor found
+              current_anchor = None
+              for el in filtered_preserved_criteria_elements:
+                  if current_anchor is None:
+                      # Insert at the end of the document
+                      current_anchor = doc.add_paragraph()
+                  new_el = insert_element_after(current_anchor, el)
+                  if new_el:
+                      current_anchor = new_el
+              last_inserted_para = current_anchor
+      elif not completion_mode:
+          # Insert all claims in order, immediately after the intro
+          #NEW HERE
+          # Insert all claims in order, immediately after the intro
+          if criteria_anchor:
+              last_inserted_para = criteria_anchor
+              for ClaimNumber in ClaimNumbers:
+                  web_scraped_claim = get_claim_from_google_patents(PatentAtIssue_Number, ClaimNumber)
+                  if web_scraped_claim:
+                      lines = web_scraped_claim.split('\n')
+                      claim_parts = [line.strip() for line in lines if line.strip()]
+                      if len(claim_parts) == 1:
+                          text = claim_parts[0]
+                          patterns = [r'(?=\bwherein\b)', r'(?=\bcomprising\b)', r'(?=\bfurther comprising\b)',
+                                      r'(?=\bcharacterized by\b)', r'(?=\band\b)', r'(?=\bor\b)']
+                          for pattern in patterns:
+                              parts = re.split(pattern, text, flags=re.IGNORECASE)
+                              if len(parts) > 1:
+                                  claim_parts = [part.strip() for part in parts if part.strip()]
+                                  break
+                      fragments_to_use = claim_parts if claim_parts else [web_scraped_claim]
+                      #JUNE16
+                  else:
+                      all_fragments = extract_claim_fragments_from_excel(df)
+                      fragments_to_use = []
+                      collecting = False
+
+                      for frag in all_fragments:
+                          frag = str(frag).strip()
+
+                          if re.match(rf"^{re.escape(str(ClaimNumber))}\.", frag):
+                              collecting = True
+                              fragments_to_use.append(frag)
+
+                          elif collecting and re.match(r"^\d+\.", frag):
+                              break
+
+                          elif collecting:
+                              fragments_to_use.append(frag)
+                              #JUNE16END
+
+                  # Merge fragments around "claim X" references
+                  merged_fragments = []
+                  i = 0
+                  while i < len(fragments_to_use):
+                      fragment = fragments_to_use[i].replace('\n', ' ').strip()
+
+                      # Check if next fragment is ONLY a claim reference
+                      if i + 1 < len(fragments_to_use):
+                          next_frag = fragments_to_use[i + 1].strip()
+                          # If next is just "claim 1" or "of claim 1", merge with current AND the one after
+                          if re.match(r'^(of\s+)?claim\s+\d+[,.]?$', next_frag, re.IGNORECASE):
+                              # Merge current + "claim X"
+                              combined = fragment + " " + next_frag
+
+                              # Add the following fragment (the ", wherein..." part)
+                              if i + 2 < len(fragments_to_use):
+                                  following_frag = fragments_to_use[i + 2].strip()
+                                  # Check if following fragment starts with punctuation
+                                  if following_frag and following_frag[0] in ',.;:':
+                                      # No space before punctuation
+                                      combined += following_frag
+                                  else:
+                                      # Add space for normal text
+                                      combined += " " + following_frag
+                                  i += 3  # Skip current, "claim X", and following
+                              else:
+                                  i += 2  # Just skip current and "claim X"
+                              merged_fragments.append(combined)
+                              continue
+
+                      merged_fragments.append(fragment)
+                      i += 1
+
+                  for idx, fragment in enumerate(merged_fragments):
+                      fragment_single_line = fragment.replace('\n', ' ').strip()
+                      new_para = insert_paragraph_after(last_inserted_para, fragment_single_line)
+                      if idx != 0:
+                          new_para.paragraph_format.left_indent = Inches(0.23) #Oct10
+                      new_para.paragraph_format.keep_together = True
+                      apply_font_style(new_para)
+                      last_inserted_para = new_para
+
+      #UP TO HERE
+
+      #Oct21
+      # =========================================================
+      # Extract and preserve mapping section from edited document
+      # =========================================================
+      preserved_mapping_elements = [] if completion_mode else extract_mapping_section(edited_doc)
+
+      num_elements = len(preserved_mapping_elements)
+      num_tables = sum(1 for el in preserved_mapping_elements if el.tag == qn('w:tbl'))
+      if len(preserved_mapping_elements) > 0:
+          print(f"✓ Extracted {num_elements} elements from Mapping section, including {num_tables} tables.")
+      else:
+          print("⚠ No Mapping section found in edited report. Generating fresh Mapping tables.")
+
+      # Ensure last_inserted_para is defined - it should be the last paragraph from criteria section
+      if 'last_inserted_para' not in locals():
+          # This should not happen now since we set last_inserted_para in both criteria paths
+          # But keep as fallback for safety
+          print("⚠ Warning: last_inserted_para not defined, using fallback logic")
+          # Find the last paragraph that was processed in the criteria section
+          # Look for the criteria anchor or the last paragraph before mappings
+          last_inserted_para = None
+          if not completion_mode:
+              for p in doc.paragraphs:
+                  try:
+                      if criteria_intro in p.text:
+                          last_inserted_para = p
+                          break
+                  except NameError:
+                      break
+
+          # If not found, use the last paragraph in the document
+          if last_inserted_para is None and doc.paragraphs:
+              last_inserted_para = doc.paragraphs[-1]
+
+      # If we have preserved elements, replace the generated Mapping section with them
+      if not completion_mode and preserved_mapping_elements:
+          print("✓ Using preserved mapping elements")
+          remove_section(doc, "mappings based on selected references", "search strings")
+          current_anchor = last_inserted_para
+          # Add page break before inserting preserved mapping elements
+          page_break_para = doc.add_paragraph()
+          run = page_break_para.add_run()
+          run.add_break(docx.enum.text.WD_BREAK.PAGE)
+          current_anchor._element.addnext(page_break_para._p)
+          current_anchor = page_break_para
+          for el in preserved_mapping_elements:
+              new_el = insert_element_after(current_anchor, el)
+              if new_el:
+                  current_anchor = new_el
+      elif not completion_mode:
+          print("⚠ No preserved mapping elements found, generating fresh mapping tables")
+      #UP TO HERE OCT21
+          # NEW HERE
+          # =========================================================
+          # 6) MAPPINGS BASED ON SELECTED REFERENCES - FINAL VERSION
+          # =========================================================
+
+          def find_mapping_tables(doc):
+              tables = []
+              for t in doc.tables:
+                  header_no = None
+                  for cell in t.rows[0].cells:
+                      for p in cell.paragraphs:
+                          m = re.search(r"\[CLAIM_HEADER(\d+)\]", p.text)
+                          if m:
+                              header_no = int(m.group(1))
+                              break
+                      if header_no is not None:
+                          break
+                  if header_no is not None:
+                      tables.append((header_no, t))
+              tables.sort(key=lambda x: x[0])
+              return tables
+
+          def update_table_headers(table, claim_number):
+              """Update headers"""
+              header_row = table.rows[0]
+
+              # Left header
+              left_cell = header_row.cells[0]
+              for p in left_cell.paragraphs:
+                  p.text = ""
+              p = left_cell.paragraphs[0]
+              p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+              run = p.add_run(f"{short_patent_name}'s Claim {claim_number} Elements")
+              run.bold = True
+              run.font.name = 'Inter'
+              run.font.size = Pt(10)
+
+              # Right header
+              right_cell = header_row.cells[1]
+              for p in right_cell.paragraphs:
+                  p.text = ""
+              p = right_cell.paragraphs[0]
+              p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+              run = p.add_run("Related Disclosures from the Selected References")
+              run.bold = True
+              run.font.name = 'Inter'
+              run.font.size = Pt(10)
+
+          def clone_table_structure(source_table):
+              """Clone the entire table structure"""
+              new_tbl = deepcopy(source_table._tbl)
+              from docx.table import Table
+              return Table(new_tbl, source_table._parent)
+      #Feb10
+          def get_claim_fragments_for_claim(claim_number):
+              # Look for any of the expert comments variations
+              expert_comments_variations = ['Expert Comments', 'Expert/Reviewer Comments', 'Reviewer Comments']
+              claim_start_idx = None
+
+              for variation in expert_comments_variations:
+                  try:
+                      claim_start_idx = df[df[0] == variation].index[0] + 1
+                      break
+                  except (IndexError, KeyError):
+                      continue
+
+              if claim_start_idx is None:
+                  claim_start_idx = 0  # Fallback to start of dataframe
+
+              claim_fragments = []
+              fragment_rows = []  # ← ADD THIS LINE
+              current_idx = claim_start_idx
+              found_claim = False
+
+              while current_idx < len(df):
+                  cell_value = df.iloc[current_idx, 0]
+                  if pd.isna(cell_value) or str(cell_value).strip() == "":
+                      break
+                  cell_str = str(cell_value).strip()
+                  if re.match(rf"^{claim_number}\.", cell_str):
+                      found_claim = True
+                      claim_fragments.append(cell_str)
+                      fragment_rows.append(current_idx)
+                  elif found_claim and re.match(r"^\d+\.", cell_str):
+                      break
+                  elif found_claim:
+                      claim_fragments.append(cell_str)
+                      fragment_rows.append(current_idx)
+                  current_idx += 1
+      #Feb10 Up to here
+              if not claim_fragments:
+                  web_scraped = get_claim_from_google_patents(PatentAtIssue_Number, claim_number)
+                  if web_scraped:
+                      claim_fragments = [line.strip() for line in web_scraped.split('\n') if line.strip()]
+                      fragment_rows = [-1] * len(claim_fragments)
+
+              if not claim_fragments or not claim_fragments[0].startswith(f"{claim_number}."):
+                  claim_fragments.insert(0, f"{claim_number}. [Claim text not found]")
+                  if len(fragment_rows) == 0:
+                      fragment_rows.insert(0, -1)
+
+              return claim_fragments, fragment_rows
+
+          '''def clear_cell_keep_formatting(cell):
+              """Clear text but keep shading"""
+              for p in cell.paragraphs:
+                  for run in p.runs:
+                      run.text = ""
+              if len(cell.paragraphs) == 0:
+                  cell.add_paragraph()'''
+          #Oct15
+          def clear_cell_keep_formatting(cell):
+              """Clear text but keep shading"""
+              for p in cell.paragraphs:
+                  for run in p.runs:
+                      run.text = ""
+                  # SET DEFAULT SPACING TO 0
+                  p.paragraph_format.space_after = Pt(0)
+                  p.paragraph_format.space_before = Pt(0)
+              if len(cell.paragraphs) == 0:
+                  para = cell.add_paragraph()
+                  para.paragraph_format.space_after = Pt(0)
+                  para.paragraph_format.space_before = Pt(0)
+      #Up to here
+          def populate_table_with_claim(table, claim_number):
+              """Fill table with claim data"""
+              global global_color_index  #NEW HERE(Oct8)
+              claim_fragments, fragment_rows = get_claim_fragments_for_claim(claim_number)
+
+              # Filter empty
+              filtered_fragments = []
+              filtered_rows = []
+              for i, fragment in enumerate(claim_fragments):
+                  if fragment.strip():
+                      filtered_fragments.append(fragment)
+                      filtered_rows.append(fragment_rows[i] if i < len(fragment_rows) else -1)
+
+              claim_fragments = filtered_fragments
+              fragment_rows = filtered_rows
+
+              # CRITICAL: Save the template data row BEFORE deleting anything
+              template_row_copy = None
+              if len(table.rows) > 1:
+                  template_row_copy = deepcopy(table.rows[1]._tr)
+
+              # Remove all data rows (keep header)
+              for row in list(table.rows[1:]):
+                  table._tbl.remove(row._tr)
+
+              # Add rows for fragments using the saved template
+              for frag_idx, fragment in enumerate(claim_fragments):
+                  # Clone from the saved template row
+                  if template_row_copy is not None:
+                      new_tr = deepcopy(template_row_copy)
+                      table._tbl.append(new_tr)
+                      from docx.table import _Row
+                      new_row = _Row(new_tr, table)
+                  else:
+                      new_row = table.add_row()
+
+                  clear_cell_keep_formatting(new_row.cells[0])
+                  clear_cell_keep_formatting(new_row.cells[1])
+
+                  # Left cell
+                  p_left = new_row.cells[0].paragraphs[0]
+                  run_left = p_left.add_run(fragment)
+                  run_left.font.name = 'Inter'
+                  run_left.font.size = Pt(9)
+                  run_left.bold = True
+                  #NEW HERE (Oct8)
+                  run_left.font.color.rgb = color_cycle[global_color_index % 2]
+                  global_color_index += 1
+                  if frag_idx > 0:
+                      p_left.paragraph_format.left_indent = Inches(0.23) #Oct10
+
+                      #UP TO HERE
+          #NEW HERE
+                  # Right cell
+                  if fragment.strip() and fragment_rows[frag_idx] != -1:
+                      for p in list(new_row.cells[1].paragraphs):
+                          p._element.getparent().remove(p._element)
+
+                      main_para = new_row.cells[1].add_paragraph()
+
+                      # Set paragraph style to ensure Inter 9 is applied
+                      main_para.style = None  # Clear any inherited styles
+
+                      main_para.paragraph_format.space_after = Pt(0) #Oct10
+                      main_para.paragraph_format.space_before = Pt(0) #Oct10
+                      main_para.paragraph_format.line_spacing = 1.08  # Single line spacing #Oct15
+
+                      mapping_references = [
+                          ref for ref in sorted_references
+                          if should_include_ref_in_mapping(ref)
+                      ]
+
+                      for i, ref in enumerate(mapping_references):
+                          if i > 0:
+                              spacing_run = main_para.add_run("\n\n")
+                              spacing_run.font.name = 'Inter'
+                              spacing_run.font.size = Pt(9)
+
+                          display_rank = get_mapping_display_rank(ref)
+
+                          if ref.isNPL:
+                              heading_text = f'{display_rank}. "{ref.Title}"'
+                          else:
+                              heading_text = f"{display_rank}. {ref.RawPublicationNumber}"
+
+                          heading_run = main_para.add_run(heading_text)
+                          heading_run.font.name = 'Inter'
+                          heading_run.font.size = Pt(9)
+                          heading_run.bold = True
+
+                          # Add placeholder text only if not the last reference
+                          if i < len(mapping_references) - 1:
+                              placeholder_run = main_para.add_run("\n")
+                              placeholder_run.font.name = 'Inter'
+                              placeholder_run.font.size = Pt(9)
+
+                      # Add a final empty run to ensure no unstyled trailing line
+                      pPr = main_para._p.get_or_add_pPr()
+                      rPr = OxmlElement('w:rPr')
+                      rFonts = OxmlElement('w:rFonts')
+                      rFonts.set(qn('w:ascii'), 'Inter')
+                      rFonts.set(qn('w:hAnsi'), 'Inter')
+                      rFonts.set(qn('w:cs'), 'Inter')
+                      rPr.append(rFonts)
+                      sz = OxmlElement('w:sz')
+                      sz.set(qn('w:val'), '18')  # 9pt in half-points
+                      rPr.append(sz)
+                      szCs = OxmlElement('w:szCs')
+                      szCs.set(qn('w:val'), '18')
+                      rPr.append(szCs)
+                      pPr.append(rPr)
+                      final_run = main_para.add_run("\n")
+                      final_run.font.name = 'Inter'
+                      final_run.font.size = Pt(9)
+
+      # UP TO HERE
+          color_cycle = [RGBColor(0x00, 0x70, 0xC0), RGBColor(0xC0, 0x00, 0x00)]
+          global_color_index = 0 #NEW HERE  (Oct8)
+          # Update mappings paragraph
+          #NEW HERE
+          mappings_paragraph = find_paragraph_with_placeholder(doc, "[MAPPINGS_PARAGRAPH]")
+          if mappings_paragraph:
+              para_text = (
+                  f"These are the mappings of the elements of {claim_word} {format_claims_as_ranges(ClaimNumbers)} of the {short_patent_name_lower} " #NEW HERE
+                  "against similar disclosures from the selected references. Matching with the claim elements "
+                  "may vary from somewhat relevant to strongly-matched."
+              )
+              #UP TO HERE
+              mappings_paragraph.text = para_text
+              apply_font_style(mappings_paragraph)
+
+          # Find template table
+          mapping_tables = find_mapping_tables(doc)
+          print(f"Found {len(mapping_tables)} mapping tables")
+          print(f"Claim numbers: {ClaimNumbers}")
+
+          if mapping_tables and len(ClaimNumbers) > 0:
+              master_idx, master_table = mapping_tables[0]
+
+              # Process FIRST claim in the existing template table
+              first_claim = ClaimNumbers[0]
+              update_table_headers(master_table, first_claim)
+              populate_table_with_claim(master_table, first_claim)
+
+              # For remaining claims, clone the processed master table
+              last_table = master_table
+
+              for claim_idx in range(1, len(ClaimNumbers)):
+                  claim_number = ClaimNumbers[claim_idx]
+
+                  # Page break
+                  page_break_para = doc.add_paragraph()
+                  run = page_break_para.add_run()
+                  run.add_break(docx.enum.text.WD_BREAK.PAGE)
+
+                  # Insert page break after last table
+                  last_table._tbl.addnext(page_break_para._p)
+
+                  # Clone the master table structure
+                  new_table = clone_table_structure(master_table)
+                  page_break_para._p.addnext(new_table._tbl)
+
+                  # Process this claim
+                  update_table_headers(new_table, claim_number)
+                  populate_table_with_claim(new_table, claim_number)
+
+                  last_table = new_table
+          else:
+              print("⚠ No mapping tables found or no claim numbers - skipping mapping section generation")
+
+      # UP TO HERE
+      # =========================================================
+      # 7) SEARCH STRINGS section with special query formatting
+      # =========================================================
+      if not search_results_df.empty:
+          # Generate Search Strings into target_doc (gen_doc in Completion mode)
+          print(f"🔧 Generating search strings into {target_doc}")
+          replace_in_paragraphs_and_tables(target_doc, {"[HITS_TOTAL]": f"{total_search_hits:,}"})
+
+          search_results_df['Database_norm'] = search_results_df['Database'].astype(str).str.strip().str.lower()
+          typo_map = {
+              "gogle patents": "google patents",
+              "google patents ": "google patents",
+              "espacent": "espacenet",
+              "espacents": "espacenet",
+              "espacenet ": "espacenet",
+              "google scholar": "google scholar",
+              "google search": "google search",  # Added Google Search
+              "science direct": "science direct",
+              "wipo patentscope": "wipo patentscope",
+              "j-platpat": "j-platpat",
+              "kipris": "kipris",
+              "manualslib": "manualslib",
+              "internet archive": "internet archive",
+              "amazon": "amazon",
+              "alibaba": "alibaba",
+          }
+          search_results_df['Database_norm'] = search_results_df['Database_norm'].replace(typo_map)
+          canonical = [
+              'orbit', 'google patents', 'espacenet', 'pqai', 'kipris', 'j-platpat',
+              'wipo patentscope', 'google scholar', 'google search', 'science direct', 'ieee',
+              'manualslib', 'amazon', 'alibaba', 'internet archive'
+          ]
+          def canonicalize(name):
+              if name in canonical:
+                  return name
+              match = difflib.get_close_matches(name, canonical, n=1, cutoff=0.75)
+              return match[0] if match else name
+          search_results_df['Database_norm'] = search_results_df['Database_norm'].apply(canonicalize)
+          sort_order = {
+              'orbit': 1,
+              'google patents': 2,
+              'espacenet': 3,
+              'pqai': 4,
+              'kipris': 5,
+              'j-platpat': 6,
+              'wipo patentscope': 7,
+              'google scholar': 8,
+              'google search': 9,  # Added Google Search
+              'science direct': 10,
+              'ieee': 11,
+              'manualslib': 12,
+              'amazon': 13,
+              'alibaba': 14,
+              'internet archive': 15
+          }
+          search_results_df['Database_rank'] = search_results_df['Database_norm'].map(sort_order).fillna(16)
+          search_results_df = search_results_df.sort_values(by=['Database_rank', 'Database_norm'], ascending=[True, True], kind='mergesort').reset_index(drop=True)
+          search_results_df['S/No'] = range(1, len(search_results_df) + 1)
+          display_map = {
+              'orbit': 'Orbit',
+              'google patents': 'Google Patents',
+              'espacenet': 'Espacenet',
+              'pqai': 'PQAI',
+              'kipris': 'KIPRIS',
+              'j-platpat': 'J-PlatPat',
+              'wipo patentscope': 'WIPO Patentscope',
+              'google scholar': 'Google Scholar',
+              'google search': 'Google Search',  # Added Google Search
+              'science direct': 'Science Direct',
+              'ieee': 'IEEE',
+              'manualslib': 'ManualsLib',
+              'amazon': 'Amazon',
+              'alibaba': 'Alibaba',
+              'internet archive': 'Internet Archive'
+          }
+          search_results_df['Database'] = search_results_df['Database_norm'].map(display_map).fillna(search_results_df['Database'])
+          search_results_df['Hits'] = search_results_df['Hits'].apply(lambda x: f"{int(str(x).replace(',', '')):,}" if str(x).replace(',', '').isdigit() else str(x))
+          search_results_df = search_results_df.drop(columns=['Database_norm', 'Database_rank'])
+
+          ss_table = find_table_with_placeholder(target_doc, "[ROW_INDEX]") or find_table_with_placeholder(target_doc, "[DB]") \
+                    or find_table_with_placeholder(target_doc, "[SCOPE]") or find_table_with_placeholder(target_doc, "[QUERY]") \
+                    or find_table_with_placeholder(target_doc, "[HITS]")
+
+          if ss_table:
+              template_row = find_row_with_placeholder(ss_table, "[ROW_INDEX]") or ss_table.rows[-1]
+      #Oct16
+              def format_query_cell(cell, query_text, database_name):
+                  """Format query cell with special handling for specific databases"""
+                  clear_cell(cell)
+                  para = cell.paragraphs[0]
+
+                  # Fix Issue 3: Strip existing quotes to prevent doubling
+                  if query_text.startswith('"') and query_text.endswith('"'):
+                      query_text = query_text[1:-1]
+
+                  # Fix Issue 2: Detect natural language queries
+                  def is_natural_language(text):
+                      # Check for presence of common query operators/functions
+                      operators = [r'\bAND\b', r'\bOR\b', r'\bNOT\b', r'\bNEAR/\d+\b', r'\bNEAR\d*\b', r'\bADJ\d*\b', r'\bCPC=', r'\bIPC=']
+                      return not any(re.search(op, text) for op in operators)
+                  #Feb25
+                  # Database-first approach
+                  ALWAYS_BOOLEAN = ['Google Patents', 'Orbit', 'Espacenet', 'KIPRIS', 'J-PlatPat',
+                                    'WIPO Patentscope', 'Google Scholar', 'Science Direct', 'IEEE']
+                  ALWAYS_NL = ['PQAI', 'Google Search', 'Amazon', 'Alibaba', 'ManualsLib',
+                              'Internet Archive']
+
+                  if database_name in ALWAYS_BOOLEAN:
+                      needs_quotes_and_italics = False
+                  elif database_name in ALWAYS_NL:
+                      needs_quotes_and_italics = True
+                  else:
+                      # Fallback: detect from query text for unknown databases
+                      needs_quotes_and_italics = is_natural_language(query_text)
+                #Feb25 UPTO HERE
+                  op_pattern = r'(\bAND\b|\bOR\b|\bNOT\b|\bNEAR/\d+\b|\bNEAR\d*\b|\bADJ\d*\b|\b[FPS]\b|\b\d+[DW]\b|\bCPC=|\bIPC=)'
+                #Feb25 UP
+                  if needs_quotes_and_italics:
+                      # Split off any keyword:value filters at the end (e.g. before:2006-09-01, after:priority:20060901)
+                      filter_pattern = r'^(.*?)(\s+(?:[a-zA-Z]+:)+[^\s"]+(?:\s+(?:[a-zA-Z]+:)+[^\s"]+)*)$'
+                      filter_match = re.match(filter_pattern, query_text, re.DOTALL)
+                      if filter_match and filter_match.group(2).strip():
+                          main_query = filter_match.group(1).strip()
+                          trailing_filters = filter_match.group(2)
+                      else:
+                          main_query = query_text
+                          trailing_filters = ""
+
+                      # Add opening quote
+                      quote_run = para.add_run('"')
+                      quote_run.font.name = 'Inter'
+                      quote_run.font.size = Pt(9)
+
+                      parts = re.split(op_pattern, main_query)
+                      for part in parts:
+                          if not part:
+                              continue
+                          if re.match(r'^(AND|OR|NOT|NEAR/\d+|NEAR\d*|ADJ\d*|[FPS]|\d+[DW]|CPC=|IPC=)$', part):
+                              run = para.add_run(part)
+                              run.italic = True
+                              run.font.name = 'Inter'
+                              run.font.size = Pt(9)
+                          else:
+                              run = para.add_run(part)
+                              run.italic = True
+                              run.font.name = 'Inter'
+                              run.font.size = Pt(9)
+
+                      # Add closing quote
+                      quote_run = para.add_run('"')
+                      quote_run.font.name = 'Inter'
+                      quote_run.font.size = Pt(9)
+
+                      # Add trailing filters outside quotes (plain text, not italic)
+                      if trailing_filters:
+                          run = para.add_run(trailing_filters)
+                          run.font.name = 'Inter'
+                          run.font.size = Pt(9)
+
+                  else:
+                      # Boolean databases: plain text, operators bolded
+                      parts = re.split(op_pattern, query_text)
+                      for part in parts:
+                          if not part:
+                              continue
+                          if re.match(r'^(AND|OR|NOT|NEAR/\d+|NEAR\d*|ADJ\d*|[FPS]|\d+[DW]|CPC=|IPC=)$', part):
+                              run = para.add_run(part)
+                              run.bold = True
+                              run.font.name = 'Inter'
+                              run.font.size = Pt(9)
+                          else:
+                              run = para.add_run(part)
+                              run.font.name = 'Inter'
+                              run.font.size = Pt(9)
+
+                          #Feb 25 UP TO HERE
+      #UP TO HERE
+              if len(search_results_df) > 0:
+                  first = search_results_df.iloc[0]
+                  set_cell_text(template_row.cells[0], str(first['S/No']), size=9, bold=True)
+                  set_cell_text(template_row.cells[1], first['Database'], size=9)
+                  set_cell_text(template_row.cells[2], first['Scope'], size=9)
+                  # Use the new formatting function for query cell
+                  format_query_cell(template_row.cells[3], first['Query'], first['Database'])
+                  set_cell_text(template_row.cells[4], first['Hits'], size=9)
+                  template_row.cells[4].paragraphs[0].alignment = 1
+
+                  for _, row in search_results_df.iloc[1:].iterrows():
+                      new_row = clone_row_after(ss_table, template_row)
+                      set_cell_text(new_row.cells[0], str(row['S/No']), size=9, bold=True)
+                      set_cell_text(new_row.cells[1], row['Database'], size=9)
+                      set_cell_text(new_row.cells[2], row['Scope'], size=9)
+                      # Use the new formatting function for query cell
+                      format_query_cell(new_row.cells[3], row['Query'], row['Database'])
+                      set_cell_text(new_row.cells[4], row['Hits'], size=9)
+                      new_row.cells[4].paragraphs[0].alignment = 1
+
+                  # Total row remains unchanged
+                  total_row = clone_row_after(ss_table, template_row)
+                  from docx.oxml import OxmlElement
+                  from docx.oxml.ns import qn
+                  for cell in total_row.cells:
+                      tcPr = cell._element.get_or_add_tcPr()
+                      tcBorders = tcPr.xpath('./w:tcBorders')
+                      if tcBorders:
+                          tcBorders[0].clear()
+                      else:
+                          tcBorders = OxmlElement('w:tcBorders')
+                          tcPr.append(tcBorders)
+                      for border_name in ['left', 'right', 'bottom']:
+                          border = OxmlElement(f'w:{border_name}')
+                          border.set(qn('w:val'), 'nil')
+                          tcBorders.append(border)
+                  set_cell_text(total_row.cells[0], "", size=9)
+                  set_cell_text(total_row.cells[1], "", size=9)
+                  set_cell_text(total_row.cells[2], "", size=9)
+                  set_cell_text(total_row.cells[3], "TOTAL", bold=True, size=10)
+                  set_cell_text(total_row.cells[4], f"{total_search_hits:,}", bold=True, size=10)
+                  total_row.cells[4].paragraphs[0].alignment = 1
+
+      # =========================================================
+      # Debug: Verify sections were generated into the correct document
+      # =========================================================
+      if completion_mode and 'gen_doc' in locals():
+          print(f"\n🔍 Post-generation verification:")
+          print(f"  - gen_doc has {len(gen_doc.paragraphs)} paragraphs")
+          print(f"  - gen_doc has {len(gen_doc.tables)} tables")
+          print(f"  - doc (edited) has {len(doc.paragraphs)} paragraphs")
+          print(f"  - doc (edited) has {len(doc.tables)} tables")
+
+          # Check if search strategies content exists in gen_doc
+          search_strategies_found = False
+          for p in gen_doc.paragraphs:
+              if "search strategy below resulted in" in p.text.lower():
+                  search_strategies_found = True
+                  print(f"  ✅ Found search strategies content in gen_doc: '{p.text[:100]}...'")
+                  break
+
+          if not search_strategies_found:
+              print("  ❌ No search strategies content found in gen_doc")
+
+      # =========================================================
+      # Merge gen_doc front/back sections into edited base in Completion mode
+      # =========================================================
+      def insert_section_before(dst_doc, src_doc, start_heading_text, end_heading_text, before_paragraph):
+          """Insert a section from src_doc into dst_doc before the specified paragraph"""
+          print(f"    🔍 Looking for '{start_heading_text}' in source document...")
+          start_p = find_paragraph_contains(src_doc, start_heading_text)
+          if not start_p:
+              print(f"    ❌ Could not find '{start_heading_text}' in source document")
+              return False
+
+          print(f"    ✅ Found '{start_heading_text}' in source document")
+
+          # Find end boundary - look for the NEXT occurrence of end_heading_text after start_heading_text
+          end_p = None
+          if end_heading_text:
+              elems = list(src_doc.element.body)
+              start_idx = elems.index(start_p._p)
+
+              # Look for end_heading_text after the start position
+              for i in range(start_idx + 1, len(elems)):
+                  if elems[i].tag == qn('w:p'):
+                      p = Paragraph(elems[i], src_doc)
+                      if end_heading_text.lower() in (p.text or '').lower():
+                          end_p = p
+                          break
+
+              if not end_p:
+                  print(f"    ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in source document, using end of document")
+
+          elems = list(src_doc.element.body)
+          start_idx = elems.index(start_p._p)
+          end_idx = elems.index(end_p._p) if end_p is not None else len(elems)
+          src_slice = elems[start_idx:end_idx]
+          print(f"    📋 Found {len(src_slice)} elements to insert")
+
+          # Insert elements before the specified paragraph
+          print(f"    ➕ Inserting {len(src_slice)} elements before target paragraph")
+
+          # Insert elements in reverse order to maintain correct order
+          for i, el in enumerate(reversed(src_slice)):
+              new_el = deepcopy(el)
+              before_paragraph._p.addprevious(new_el)
+              print(f"      Inserted element {i+1}/{len(src_slice)}")
+
+          print(f"    ✅ Successfully inserted section '{start_heading_text}'")
+          return True
+
+      def copy_range_from_to(src_doc, dst_doc, start_heading_text, end_heading_text=None, include_start=True, include_end=False):
+          print(f"  🔍 Looking for '{start_heading_text}' in source document...")
+          start_p = find_paragraph_contains(src_doc, start_heading_text)
+          if not start_p:
+              print(f"  ❌ Could not find '{start_heading_text}' in source document")
+              return False
+
+          print(f"  ✅ Found '{start_heading_text}' in source document")
+
+          # Find end boundary - look for the NEXT occurrence of end_heading_text after start_heading_text
+          end_p = None
+          if end_heading_text:
+              elems = list(src_doc.element.body)
+              start_idx = elems.index(start_p._p)
+
+              # Look for end_heading_text after the start position
+              for i in range(start_idx + 1, len(elems)):
+                  if elems[i].tag == qn('w:p'):
+                      p = Paragraph(elems[i], src_doc)
+                      if end_heading_text.lower() in (p.text or '').lower():
+                          end_p = p
+                          break
+
+              if not end_p:
+                  print(f"  ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in source document, using end of document")
+
+          elems = list(src_doc.element.body)
+          start_idx = elems.index(start_p._p)
+          end_idx = elems.index(end_p._p) if end_p is not None else len(elems)
+          if not include_start:
+              start_idx += 1
+          if include_end and end_p is not None:
+              end_idx += 1
+          src_slice = elems[start_idx:end_idx]
+          print(f"  📋 Found {len(src_slice)} elements to copy from source")
+
+          # In destination, replace the same range
+          print(f"  🔍 Looking for '{start_heading_text}' in destination document...")
+          dst_start_p = find_paragraph_contains(dst_doc, start_heading_text)
+          if not dst_start_p:
+              print(f"  ❌ Could not find '{start_heading_text}' in destination document")
+              return False
+
+          print(f"  ✅ Found '{start_heading_text}' in destination document")
+
+          # Find end boundary in destination - look for the NEXT occurrence after start
+          dst_end_p = None
+          if end_heading_text:
+              dst_elems = list(dst_doc.element.body)
+              dst_start_idx = dst_elems.index(dst_start_p._p)
+
+              # Look for end_heading_text after the start position
+              for i in range(dst_start_idx + 1, len(dst_elems)):
+                  if dst_elems[i].tag == qn('w:p'):
+                      p = Paragraph(dst_elems[i], dst_doc)
+                      if end_heading_text.lower() in (p.text or '').lower():
+                          dst_end_p = p
+                          break
+
+              if not dst_end_p:
+                  print(f"  ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in destination document, using end of document")
+
+          dst_elems = list(dst_doc.element.body)
+          dst_start_idx = dst_elems.index(dst_start_p._p)
+          dst_end_idx = dst_elems.index(dst_end_p._p) if dst_end_p is not None else len(dst_elems)
+
+          # Remove existing range (excluding the heading paragraph itself)
+          elements_to_remove = dst_end_idx - dst_start_idx - (0 if include_start else 1)
+          print(f"  🗑️  Removing {elements_to_remove} existing elements from destination")
+
+          # Remove elements in reverse order to avoid index issues
+          for i in range(dst_end_idx - 1, dst_start_idx + (0 if include_start else 1) - 1, -1):
+              if i < len(dst_elems):
+                  el = dst_elems[i]
+                  dst_doc.element.body.remove(el)
+
+          # Insert copied elements after heading
+          insert_after = dst_start_p._p if include_start else dst_elems[dst_start_idx-1]
+          print(f"  ➕ Inserting {len(src_slice)} elements into destination")
+
+          # Insert elements in reverse order to maintain correct order
+          for i, el in enumerate(reversed(src_slice)):
+              new_el = deepcopy(el)
+              insert_after.addnext(new_el)
+              print(f"    Inserted element {i+1}/{len(src_slice)}")
+
+          # Refresh the document's paragraph list to reflect changes
+          dst_doc._body._body.clear()
+          for elem in dst_doc.element.body:
+              dst_doc._body._body.append(elem)
+
+          # Verify insertion worked
+          print(f"  🔍 Document now has {len(dst_doc.paragraphs)} paragraphs")
+
+          # Additional verification: check if the section content was actually inserted
+          if start_heading_text.lower() == "objective":
+              obj_check = find_paragraph_contains(dst_doc, "objective")
+              if obj_check:
+                  print(f"  ✅ Objective section verification: Found at paragraph {list(dst_doc.paragraphs).index(obj_check)}")
+              else:
+                  print(f"  ❌ Objective section verification: Not found after insertion")
+                  # Try to find it with different case variations
+                  for test_text in ["Objective", "OBJECTIVE", "objective"]:
+                      test_check = find_paragraph_contains(dst_doc, test_text)
+                      if test_check:
+                          print(f"  🔍 Found with '{test_text}': paragraph {list(dst_doc.paragraphs).index(test_check)}")
+                          break
+
+          print(f"  ✅ Successfully copied section '{start_heading_text}'")
+          return True
+      #NEW HERE (Nov3)
+      def simple_replace_section(src_doc, dst_doc, start_heading_text, end_heading_text):
+          """Simple section replacement that just copies content without complex boundary detection"""
+          print(f"    🔍 Looking for '{start_heading_text}' in source document...")
+          start_p = find_paragraph_contains(src_doc, start_heading_text)
+          if not start_p:
+              print(f"    ❌ Could not find '{start_heading_text}' in source document")
+              return False
+
+          print(f"    ✅ Found '{start_heading_text}' in source document")
+
+          # Find end boundary
+          end_p = None
+          if end_heading_text:
+              elems = list(src_doc.element.body)
+              start_idx = elems.index(start_p._p)
+
+              # Look for end_heading_text after the start position
+              for i in range(start_idx + 1, len(elems)):
+                  if elems[i].tag == qn('w:p'):
+                      p = Paragraph(elems[i], src_doc)
+                      if end_heading_text.lower() in (p.text or '').lower():
+                          end_p = p
+                          break
+
+              if not end_p:
+                  print(f"    ⚠️  Could not find '{end_heading_text}' after '{start_heading_text}' in source document, using end of document")
+
+          # Get source content (INCLUDING the heading for sections that might not exist)
+          elems = list(src_doc.element.body)
+          start_idx = elems.index(start_p._p)
+          end_idx = elems.index(end_p._p) if end_p is not None else len(elems)
+          # Include the heading for sections that might not exist in destination
+          src_slice = elems[start_idx:end_idx]
+          print(f"    📋 Found {len(src_slice)} elements to copy from source (including heading)")
+
+          # Find destination section - if it doesn't exist, insert before the end section
+          print(f"    🔍 Looking for '{start_heading_text}' in destination document...")
+          dst_start_p = find_paragraph_contains(dst_doc, start_heading_text)
+
+          if not dst_start_p:
+              print(f"    ⚠️  Section '{start_heading_text}' not found in destination - will insert before '{end_heading_text}'")
+
+              # Find where to insert (before the end_heading_text)
+              insert_before_p = find_paragraph_contains(dst_doc, end_heading_text)
+              if not insert_before_p:
+                  print(f"    ❌ Could not find '{end_heading_text}' in destination document either")
+                  return False
+
+              print(f"    ✅ Found insertion point before '{end_heading_text}'")
+
+              # Insert the entire section (including heading) before the end section
+              print(f"    ➕ Inserting {len(src_slice)} elements into destination")
+
+              # Insert elements in reverse order to maintain correct order
+              for i, el in enumerate(reversed(src_slice)):
+                  new_el = deepcopy(el)
+                  insert_before_p._p.addprevious(new_el)
+                  print(f"      Inserted element {i+1}/{len(src_slice)}")
+
+              print(f"    ✅ Successfully inserted new section '{start_heading_text}'")
+              return True
+
+          print(f"    ✅ Found '{start_heading_text}' in destination document")
+
+          # Find end boundary in destination
+          dst_end_p = None
+          if end_heading_text:
+              dst_elems = list(dst_doc.element.body)
+              dst_start_idx = dst_elems.index(dst_start_p._p)
+
+              # Look for end_heading_text after the start position
+              for i in range(dst_start_idx + 1, len(dst_elems)):
+                  if dst_elems[i].tag == qn('w:p'):
+                      p = Paragraph(dst_elems[i], dst_doc)
+                      if end_heading_text.lower() in (p.text or '').lower():
+                          dst_end_p = p
+                          break
+
+              if not dst_end_p:
+                  # If end heading not found, look for ANY major section heading as boundary
+                  print(f"    ⚠️  Could not find '{end_heading_text}' - looking for next section...")
+                  major_sections = ["patent-at-issue", "criteria for", "mappings based", "disclaimer", "appendix"]
+                  for i in range(dst_start_idx + 1, len(dst_elems)):
+                      if dst_elems[i].tag == qn('w:p'):
+                          p = Paragraph(dst_elems[i], dst_doc)
+                          text_lower = (p.text or '').lower()
+                          if any(section in text_lower for section in major_sections):
+                              dst_end_p = p
+                              print(f"    ✅ Found boundary at: '{p.text.strip()}'")
+                              break
+
+                  if not dst_end_p:
+                      print(f"    ⚠️  No section boundary found, using end of document")
+
+          # Remove existing content (keep the heading)
+          dst_elems = list(dst_doc.element.body)
+          dst_start_idx = dst_elems.index(dst_start_p._p)
+          dst_end_idx = dst_elems.index(dst_end_p._p) if dst_end_p is not None else len(dst_elems)
+
+          # Remove elements after the heading
+          elements_to_remove = dst_end_idx - dst_start_idx - 1
+          print(f"    🗑️  Removing {elements_to_remove} existing elements from destination")
+
+          # Remove elements in reverse order
+          for i in range(dst_end_idx - 1, dst_start_idx, -1):
+              if i < len(dst_elems):
+                  el = dst_elems[i]
+                  dst_doc.element.body.remove(el)
+
+          # Insert new content after the heading (skip first element since heading already exists)
+          new_content = src_slice[1:]  # Skip the heading from source
+          print(f"    ➕ Inserting {len(new_content)} elements into destination")
+
+          # Insert elements in reverse order to maintain correct order
+          for i, el in enumerate(reversed(new_content)):
+              new_el = deepcopy(el)
+              dst_start_p._p.addnext(new_el)
+              print(f"      Inserted element {i+1}/{len(new_content)}")
+
+          print(f"    ✅ Successfully replaced section '{start_heading_text}'")
+          return True
+      #UP TO HERE (Nov3)
+      # Apply merge only in Completion mode
+      if completion_mode and edited_doc is not None and 'gen_doc' in locals():
+          print("🔄 Starting merge process in Completion mode...")
+
+          # Debug: List all headings in both documents to see what we're working with
+          def list_headings(doc, doc_name):
+              print(f"\n📋 Headings in {doc_name}:")
+              for i, p in enumerate(doc.paragraphs):
+                  text = p.text.strip()
+                  if text and len(text) < 100 and (text.isupper() or any(word in text.lower() for word in ['title', 'contents', 'objective', 'references', 'patent', 'criteria', 'mappings', 'search', 'appendix', 'disclaimer', 'about'])):
+                      print(f"  {i}: '{text}'")
+
+          list_headings(gen_doc, "Generated Document")
+          list_headings(doc, "Edited Document")
+
+          # Additional debug: Check if gen_doc has the expected content
+          print(f"\n🔍 Checking gen_doc content:")
+          print(f"  - gen_doc has {len(gen_doc.paragraphs)} paragraphs")
+          print(f"  - gen_doc has {len(gen_doc.tables)} tables")
+
+          # Check if the search strategies content exists in gen_doc
+          search_strategies_found = False
+          for p in gen_doc.paragraphs:
+              if "search strategy below resulted in" in p.text.lower():
+                  search_strategies_found = True
+                  print(f"  ✅ Found search strategies content: '{p.text[:100]}...'")
+                  break
+
+          if not search_strategies_found:
+              print("  ❌ No search strategies content found in gen_doc")
+
+          # Debug: Check what's in the last few paragraphs of gen_doc
+          print(f"\n🔍 Last 5 paragraphs in gen_doc:")
+          for i, p in enumerate(gen_doc.paragraphs[-5:]):
+              text = p.text.strip()
+              if text:
+                  print(f"  {len(gen_doc.paragraphs)-5+i}: '{text[:80]}{'...' if len(text) > 80 else ''}'")
+
+          # Debug: Check what's in the last few paragraphs of doc (edited document)
+          print(f"\n🔍 Last 5 paragraphs in doc (edited document):")
+          for i, p in enumerate(doc.paragraphs[-5:]):
+              text = p.text.strip()
+              if text:
+                  print(f"  {len(doc.paragraphs)-5+i}: '{text[:80]}{'...' if len(text) > 80 else ''}'")
+
+          # Check if sections exist in edited document before copying
+          print("\n🔍 Checking if sections exist in edited document:")
+          obj_exists = find_paragraph_contains(doc, "objective") is not None
+          other_refs_exists = find_paragraph_contains(doc, "other related references found") is not None
+          patent_exists = find_paragraph_contains(doc, "patent-at-issue") is not None
+          appendix_b_exists = find_paragraph_contains(doc, "appendix b") is not None
+
+          print(f"  - Objective exists: {'✅' if obj_exists else '❌'}")
+          print(f"  - Other Related References exists: {'✅' if other_refs_exists else '❌'}")
+          print(f"  - Patent-at-Issue exists: {'✅' if patent_exists else '❌'}")
+          print(f"  - Appendix B exists: {'✅' if appendix_b_exists else '❌'}")
+
+          # Simple approach: Replace the existing sections with generated content
+          print("\n📄 Replacing existing sections with generated content...")
+
+          # FIRST: Replace entire title page content from gen_doc into doc (up to OBJECTIVE)
+          print("📄 Replacing Title Page (full first-page content)...")
+          try:
+              gen_obj_p = find_paragraph_contains(gen_doc, "objective")
+              doc_obj_p = find_paragraph_contains(doc, "objective")
+              if gen_obj_p is None or doc_obj_p is None:
+                  print("  ⚠️  Could not find 'OBJECTIVE' heading in one of the documents; skipping title page replacement")
+              else:
+                  gen_body = list(gen_doc.element.body)
+                  doc_body = doc.element.body
+                  gen_cut_idx = gen_body.index(gen_obj_p._p)
+
+                  # Remove existing first-page elements in destination (before its OBJECTIVE)
+                  doc_elems = list(doc_body)
+                  doc_obj_idx = doc_elems.index(doc_obj_p._p)
+                  # Remove elements [0:doc_obj_idx)
+                  for i in range(doc_obj_idx - 1, -1, -1):
+                      doc_body.remove(doc_elems[i])
+
+                  # Insert source first-page elements before destination OBJECTIVE, maintaining order
+                  insert_before = doc_obj_p._p
+                  for el in gen_body[:gen_cut_idx]:
+                      new_el = deepcopy(el)
+                      insert_before.addprevious(new_el)
+
+                  print("  ✅ Title page replaced from generated document")
+          except Exception as e:
+              print(f"  ⚠️  Warning: Could not replace title page: {e}")
+
+          # Replace Objective section
+          print("📄 Replacing Objective section...")
+          success1 = simple_replace_section(gen_doc, doc, "objective", "other related references found")
+          print(f"  Result: {'✅ Success' if success1 else '❌ Failed'}")
+
+          # Replace Other Related References section
+          print("📄 Replacing Other Related References section...")
+          success2 = simple_replace_section(gen_doc, doc, "other related references found", "patent-at-issue")
+          print(f"  Result: {'✅ Success' if success2 else '❌ Failed'}")
+
+          # Replace Patent-at-Issue section
+          print("📄 Replacing Patent-at-Issue section...")
+          success3 = simple_replace_section(gen_doc, doc, "patent-at-issue", "criteria for the publication search")
+          print(f"  Result: {'✅ Success' if success3 else '❌ Failed'}")
+
+          # Replace Search Strings section
+          print("📄 Replacing Search Strings section...")
+          success4 = (simple_replace_section(gen_doc, doc, "appendix b: search strategies", "disclaimer") or
+                      simple_replace_section(gen_doc, doc, "appendix b", "disclaimer") or
+                      simple_replace_section(gen_doc, doc, "search strategies", "disclaimer"))
+          print(f"  Result: {'✅ Success' if success4 else '❌ Failed'}")
+
+          # Final verification - check document structure after all copies
+          print("\n🔍 Final document structure verification:")
+          for i, p in enumerate(doc.paragraphs):
+              text = p.text.strip()
+              if text and len(text) < 100 and any(word in text.lower() for word in ['objective', 'other related references', 'patent-at-issue', 'criteria', 'mappings', 'disclaimer', 'appendix']):
+                  print(f"  {i}: '{text}'")
+
+          # Summary
+          total_success = sum([success1, success2, success3, success4])
+          print(f"✅ Merge process completed! {total_success}/4 sections copied successfully.")
+
+          if total_success < 4:
+              print("⚠️  Some sections could not be copied. Check the debug output above for details.")
+      else:
+          if not completion_mode:
+              print("ℹ️  Not in completion mode - skipping merge process")
+          elif edited_doc is None:
+              print("⚠️  No edited document available - skipping merge process")
+          elif 'gen_doc' not in locals():
+              print("⚠️  Generated document not available - skipping merge process")
+
+      # =========================================================
+      # Final document structure check before saving
+      # =========================================================
+      if completion_mode:
+          print("\n🔍 Final document structure before saving:")
+          for i, p in enumerate(doc.paragraphs):
+              text = p.text.strip()
+              if text and len(text) < 100 and any(word in text.lower() for word in ['objective', 'other related references', 'patent-at-issue', 'criteria', 'mappings', 'disclaimer', 'appendix']):
+                  print(f"  {i}: '{text}'")
+
+      # =========================================================
+      # Remove stray ORR header if it appears immediately before Patent-at-Issue without a table
+      # =========================================================
+      def remove_stray_orr_heading(doc):
+          try:
+              body = doc.element.body
+              elems = list(body)
+              from docx.text.paragraph import Paragraph
+              for i, el in enumerate(elems):
+                  if el.tag.endswith('p'):
+                      p = Paragraph(el, doc)
+                      txt = (p.text or '').strip().lower()
+                      if txt == 'other related references found':
+                          # Scan forward until next major section or a table
+                          j = i + 1
+                          found_table = False
+                          hit_boundary = False
+                          while j < len(elems):
+                              nxt = elems[j]
+                              if nxt.tag.endswith('tbl'):
+                                  found_table = True
+                                  break
+                              if nxt.tag.endswith('p'):
+                                  pn = Paragraph(nxt, doc)
+                                  t = (pn.text or '').strip().lower()
+                                  if any(k in t for k in ['patent-at-issue', 'criteria for', 'mappings based', 'disclaimer', 'appendix']):
+                                      hit_boundary = True
+                                      break
+                              j += 1
+                          if hit_boundary and not found_table:
+                              # Remove the stray heading paragraph
+                              body.remove(el)
+                              break
+          except Exception:
+              pass
+
+      # Apply stray header cleanup prior to structure fixes
+      remove_stray_orr_heading(doc)
+
+      # =========================================================
+      # Post-merge fix: ensure ORR header above table and page break before Patent-at-Issue
+      # =========================================================
+      def ensure_orr_header_and_spacing(doc):
+          try:
+              from docx.text.paragraph import Paragraph
+              from docx.table import Table
+              from docx.oxml import OxmlElement
+              from docx.oxml.ns import qn
+
+              body = doc.element.body
+              elems = list(body)
+
+              # Strategy 1: Find ORR heading and then the first table after it
+              print("  🔍 [ORR-FIX] Looking for ORR heading paragraph...")
+              orr_heading_idx = None
+              for i, el in enumerate(elems):
+                  if el.tag.endswith('p'):
+                      p = Paragraph(el, doc)
+                      text = (p.text or '').strip().lower()
+                      if 'other related references' in text:
+                          orr_heading_idx = i
+                          print(f"  ✅ [ORR-FIX] ORR heading found at index {i}: '{p.text.strip()}'")
+                          break
+
+              orr_table_idx = None
+              if orr_heading_idx is not None:
+                  print("  🔍 [ORR-FIX] Scanning for first table after ORR heading...")
+                  for j in range(orr_heading_idx + 1, len(elems)):
+                      if elems[j].tag.endswith('tbl'):
+                          orr_table_idx = j
+                          print(f"  ✅ [ORR-FIX] ORR table located at index {j} (after heading)")
+                          break
+
+              # Strategy 2 (fallback): Locate table heuristically by header texts
+              if orr_table_idx is None:
+                  print("  🔍 [ORR-FIX] Fallback: scanning tables by header row text match...")
+                  for i, el in enumerate(elems):
+                      if el.tag.endswith('tbl'):
+                          tbl = Table(el, doc)
+                          try:
+                              if len(tbl.rows) > 0 and len(tbl.rows[0].cells) >= 2:
+                                  row_texts = [
+                                      " ".join((p.text or '') for p in c.paragraphs).strip().lower()
+                                      for c in tbl.rows[0].cells
+                                  ]
+                                  joined = " | ".join(row_texts)
+                                  if ('references found' in joined) and (
+                                      'assignee' in joined or 'author/publisher' in joined or 'inventor' in joined
+                                  ):
+                                      orr_table_idx = i
+                                      print(f"  ✅ [ORR-FIX] ORR table detected at index {i} by fallback (header row: '{joined}')")
+                                      break
+                          except Exception:
+                              print(f"  ⚠️  [ORR-FIX] Error reading table at index {i}, skipping")
+                              continue
+
+              if orr_table_idx is not None:
+                  # If an ORR heading exists anywhere, skip generating another header near the table
+                  if orr_heading_idx is not None:
+                      print("  ℹ️  [ORR-FIX] ORR heading already exists; skipping header insertion to avoid duplicate")
+                  else:
+                      # Ensure header paragraph exists immediately before the table
+                      has_header = False
+                      if orr_table_idx - 1 >= 0 and elems[orr_table_idx - 1].tag.endswith('p'):
+                          prev_p = Paragraph(elems[orr_table_idx - 1], doc)
+                          if (prev_p.text or '').strip().lower() == 'other related references found':
+                              has_header = True
+                      print(f"  🔍 [ORR-FIX] Header present before table: {has_header}")
+
+                      if not has_header:
+                          print("  ➕ [ORR-FIX] Inserting 'OTHER RELATED REFERENCES FOUND' header before table")
+                          new_p = OxmlElement('w:p')
+                          r = OxmlElement('w:r')
+                          rPr = OxmlElement('w:rPr')
+                          rFonts = OxmlElement('w:rFonts')
+                          rFonts.set(qn('w:ascii'), 'Inter')
+                          rFonts.set(qn('w:hAnsi'), 'Inter')
+                          rFonts.set(qn('w:cs'), 'Inter')
+                          rPr.append(rFonts)
+                          b = OxmlElement('w:b')
+                          rPr.append(b)
+                          sz = OxmlElement('w:sz')
+                          sz.set(qn('w:val'), '20')  # 10pt
+                          rPr.append(sz)
+                          szCs = OxmlElement('w:szCs')
+                          szCs.set(qn('w:val'), '20')
+                          rPr.append(szCs)
+                          color = OxmlElement('w:color')
+                          color.set(qn('w:val'), '000000')
+                          rPr.append(color)
+                          r.append(rPr)
+                          t = OxmlElement('w:t')
+                          t.text = 'OTHER RELATED REFERENCES FOUND'
+                          r.append(t)
+                          pPr = OxmlElement('w:pPr')
+                          spacing = OxmlElement('w:spacing')
+                          spacing.set(qn('w:after'), '160')  # 8pt
+                          spacing.set(qn('w:line'), '216')   # 1.08 * 200
+                          spacing.set(qn('w:lineRule'), 'auto')
+                          pPr.append(spacing)
+                          new_p.append(pPr)
+                          new_p.append(r)
+                          body.insert(orr_table_idx, new_p)
+                          print("  ✅ [ORR-FIX] ORR header inserted")
+
+                  # Ensure a page break before Patent-at-Issue if it immediately follows the ORR table
+                  # Find Patent-at-Issue paragraph index
+                  pat_p = None
+                  pat_idx = None
+                  for j, el in enumerate(list(body)):
+                      if el.tag.endswith('p'):
+                          p = Paragraph(el, doc)
+                          if (p.text or '').strip().lower() == 'patent-at-issue':
+                              pat_p = p
+                              pat_idx = j
+                              break
+                  if pat_p is not None:
+                      elems2 = list(body)
+                      # If the immediately previous element is the ORR table, add a page break at start of Patent-at-Issue
+                      prev_is_tbl = (pat_idx - 1 >= 0 and elems2[pat_idx - 1].tag.endswith('tbl'))
+                      print(f"  🔍 [ORR-FIX] Patent-at-Issue at index {pat_idx}, previous is table: {prev_is_tbl}")
+                      if prev_is_tbl:
+                          # Insert a separate paragraph containing a page break BEFORE the Patent-at-Issue paragraph
+                          br = OxmlElement('w:br')
+                          br.set(qn('w:type'), 'page')
+                          run_element = OxmlElement('w:r')
+                          rPr = OxmlElement('w:rPr')
+                          rFonts = OxmlElement('w:rFonts')
+                          rFonts.set(qn('w:ascii'), 'Inter')
+                          rFonts.set(qn('w:hAnsi'), 'Inter')
+                          rFonts.set(qn('w:cs'), 'Inter')
+                          rPr.append(rFonts)
+                          run_element.append(rPr)
+                          run_element.append(br)
+                          new_break_p = OxmlElement('w:p')
+                          new_break_p.append(run_element)
+                          pat_p._p.addprevious(new_break_p)
+                          print("  ✅ [ORR-FIX] Page break paragraph inserted before Patent-at-Issue")
+                      else:
+                          print("  ℹ️  [ORR-FIX] Page break not needed/inserted (previous element is not ORR table)")
+
+                      # Enforce requested formatting for PATENT-AT-ISSUE heading
+                      try:
+                          print("  🔧 [ORR-FIX] Normalizing 'PATENT-AT-ISSUE' heading formatting")
+                          # Robustly apply Heading 1: resolve style and set both high-level and XML pStyle
+                          try:
+                              # Log current paragraph style before changes
+                              try:
+                                  current_style_name = getattr(getattr(pat_p, 'style', None), 'name', None)
+                                  print(f"  🔎 [ORR-FIX] Before: paragraph style = {current_style_name}")
+                              except Exception:
+                                  print("  🔎 [ORR-FIX] Before: paragraph style retrieval failed")
+
+                              heading_style = None
+                              # Try to resolve an existing Heading 1 style in the document
+                              available_style_names = []
+                              for st in getattr(doc.styles, '_styles', []):
+                                  try:
+                                      name = getattr(st, 'name', '') or ''
+                                      if name:
+                                          available_style_names.append(str(name))
+                                      if str(name).strip().lower() in ('heading 1', 'heading1'):
+                                          heading_style = st
+                                          break
+                                  except Exception:
+                                      continue
+                              try:
+                                  print(f"  🔎 [ORR-FIX] Available styles (first 10): {available_style_names[:10]}{' ...' if len(available_style_names)>10 else ''}")
+                              except Exception:
+                                  pass
+                              # Fallback: direct lookup by common names
+                              if heading_style is None:
+                                  try:
+                                      heading_style = doc.styles['Heading 1']
+                                  except Exception:
+                                      try:
+                                          heading_style = doc.styles['Heading1']
+                                      except Exception:
+                                          heading_style = None
+                              # Apply style at python-docx level
+                              if heading_style is not None:
+                                  try:
+                                      print(f"  🔎 [ORR-FIX] Resolved Heading 1: name={getattr(heading_style,'name',None)}, id={getattr(heading_style,'style_id',None)}")
+                                  except Exception:
+                                      pass
+                                  pat_p.style = heading_style
+                              else:
+                                  print("  ⚠️ [ORR-FIX] Could not resolve Heading 1 style object; using name 'Heading 1'")
+                                  pat_p.style = 'Heading 1'
+
+                              # Also enforce paragraph style at XML level (pPr/pStyle)
+                              pPr = pat_p._p.get_or_add_pPr()
+                              # Remove any existing pStyle to avoid duplicates
+                              for el in list(pPr):
+                                  if el.tag == qn('w:pStyle'):
+                                      pPr.remove(el)
+                              pStyle = OxmlElement('w:pStyle')
+                              # Use the style_id if available; else common default 'Heading1'
+                              style_id = None
+                              try:
+                                  style_id = getattr(heading_style, 'style_id', None)
+                              except Exception:
+                                  style_id = None
+                              pStyle.set(qn('w:val'), style_id or 'Heading1')
+                              pPr.append(pStyle)
+
+                              # Ensure outline level 0 so Word treats it as a heading
+                              try:
+                                  for el in list(pPr):
+                                      if el.tag == qn('w:outlineLvl'):
+                                          pPr.remove(el)
+                                  outline = OxmlElement('w:outlineLvl')
+                                  outline.set(qn('w:val'), '0')
+                                  pPr.append(outline)
+                              except Exception:
+                                  pass
+
+                              # Log after applying style
+                              try:
+                                  after_style_name = getattr(getattr(pat_p,'style',None),'name',None)
+                                  print(f"  ✅ [ORR-FIX] After: paragraph style = {after_style_name}")
+                                  ps = pPr.find(qn('w:pStyle'))
+                                  print(f"  ✅ [ORR-FIX] XML pStyle w:val = {ps.get(qn('w:val')) if ps is not None else 'None'}")
+                              except Exception:
+                                  pass
+                          except Exception:
+                              print("  ⚠️ [ORR-FIX] Exception while applying Heading 1 style")
+                          # Paragraph spacing
+                          pf = pat_p.paragraph_format
+                          pf.line_spacing = 1.0
+                          pf.space_after = Pt(0) #Nov6
+                          pf.space_before = Pt(0) #Nov6
+                          # Hard-enforce 0pt before/after at XML level to override style defaults
+                          try:
+                              pPr = pat_p._p.get_or_add_pPr()
+                              # Ensure a single spacing element exists
+                              spacing_el = None
+                              for el in list(pPr):
+                                  if el.tag == qn('w:spacing'):
+                                      spacing_el = el
+                                      break
+                              if spacing_el is None:
+                                  spacing_el = OxmlElement('w:spacing')
+                                  pPr.append(spacing_el)
+                              # Force 0pt before/after and disable auto spacing
+                              spacing_el.set(qn('w:before'), '0')
+                              spacing_el.set(qn('w:after'), '0')
+                              spacing_el.set(qn('w:beforeAutospacing'), '0')
+                              spacing_el.set(qn('w:afterAutospacing'), '0')
+                              # Keep single spacing
+                              spacing_el.set(qn('w:lineRule'), 'auto')
+                              try:
+                                  print(f"  ✅ [ORR-FIX] XML spacing before={spacing_el.get(qn('w:before'))}, after={spacing_el.get(qn('w:after'))}, beforeAutospacing={spacing_el.get(qn('w:beforeAutospacing'))}, afterAutospacing={spacing_el.get(qn('w:afterAutospacing'))}")
+                              except Exception:
+                                  pass
+                          except Exception:
+                              print("  ⚠️ [ORR-FIX] Exception while enforcing spacing on heading paragraph")
+
+                          # Log and normalize next paragraph spacing to eliminate apparent 8pt-after
+                          try:
+                              nxt_el = pat_p._p.getnext()
+                              from docx.text.paragraph import Paragraph as _Paragraph
+                              if nxt_el is not None and nxt_el.tag == qn('w:p'):
+                                  nxt_p = _Paragraph(nxt_el, doc)
+                                  npf = nxt_p.paragraph_format
+                                  # Log current (may be None if inherited from style)
+                                  print(f"  🔎 [ORR-FIX] Next paragraph spacing (before fix): before={getattr(npf,'space_before',None)}, after={getattr(npf,'space_after',None)}")
+                                  # Force before=0 to remove visual gap coming from style defaults
+                                  npf.space_before = Pt(0)
+                                  try:
+                                      pPr_n = nxt_p._p.get_or_add_pPr()
+                                      spacing_n = None
+                                      for el in list(pPr_n):
+                                          if el.tag == qn('w:spacing'):
+                                              spacing_n = el
+                                              break
+                                      if spacing_n is None:
+                                          spacing_n = OxmlElement('w:spacing')
+                                          pPr_n.append(spacing_n)
+                                      spacing_n.set(qn('w:before'), '0')
+                                      spacing_n.set(qn('w:beforeAutospacing'), '0')
+                                      print("  ✅ [ORR-FIX] Next paragraph spacing-before forced to 0")
+                                  except Exception:
+                                      pass
+                          except Exception:
+                              pass
+                          # Ensure the visible heading text is in this paragraph (not in the next)
+                          try:
+                              heading_text = (pat_p.text or '').strip()
+                              next_el2 = pat_p._p.getnext()
+                              if (not heading_text) and next_el2 is not None and next_el2.tag == qn('w:p'):
+                                  from docx.text.paragraph import Paragraph as _Paragraph
+                                  next_p2 = _Paragraph(next_el2, doc)
+                                  next_text = (next_p2.text or '').strip()
+                                  if next_text.lower() == 'patent-at-issue':
+                                      pat_p.add_run(next_text)
+                                      for run in list(next_p2.runs):
+                                          run.text = ''
+                                      print("  🔧 [ORR-FIX] Moved 'Patent-at-Issue' text into heading paragraph to avoid Normal duplicate")
+                          except Exception:
+                              pass
+
+                          # Runs formatting
+                          if len(pat_p.runs) == 0:
+                              pat_p.add_run("")
+                          for r in pat_p.runs:
+                              # Uppercase the heading text
+                              if r.text:
+                                  r.text = r.text.upper()
+                              r.font.bold = True
+                              r.font.size = Pt(12)
+                              try:
+                                  r.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
+                              except Exception:
+                                  pass
+                          print("  ✅ [ORR-FIX] 'PATENT-AT-ISSUE' heading formatted (Heading1, bold, 12pt, single, after 0pt)")
+                      except Exception:
+                          print("  ⚠️  [ORR-FIX] Could not apply 'PATENT-AT-ISSUE' heading formatting")
+                  else:
+                      print("  ⚠️  [ORR-FIX] Could not find 'PATENT-AT-ISSUE' heading in destination document")
+              else:
+                  print("  ⚠️  [ORR-FIX] ORR table not detected; skipping header and page break fixes")
+          except Exception:
+              print("  ⚠️  [ORR-FIX] Exception during ensure_orr_header_and_spacing")
+
+      ensure_orr_header_and_spacing(doc)
+
+      # =========================================================
+      # Fix document structure before saving
+      # =========================================================
+      def fix_document_structure(doc):
+          """Fix common XML structure issues that cause Word warnings"""
+          try:
+              # Ensure all paragraphs have proper structure
+              for paragraph in doc.paragraphs:
+                  # Ensure paragraph has proper properties
+                  pPr = paragraph._p.get_or_add_pPr()
+
+                  # Ensure all runs have proper font properties
+                  for run in paragraph.runs:
+                      if run._r.rPr is None:
+                          run._r.get_or_add_rPr()
+
+                      # Ensure font properties are complete
+                      rPr = run._r.rPr
+                      if rPr.find(qn('w:rFonts')) is None:
+                          rFonts = OxmlElement('w:rFonts')
+                          rFonts.set(qn('w:ascii'), 'Inter')
+                          rFonts.set(qn('w:hAnsi'), 'Inter')
+                          rFonts.set(qn('w:cs'), 'Inter')
+                          rPr.append(rFonts)
+
+                      if rPr.find(qn('w:sz')) is None:
+                          sz = OxmlElement('w:sz')
+                          sz.set(qn('w:val'), '20')  # 10pt default
+                          rPr.append(sz)
+
+                      if rPr.find(qn('w:szCs')) is None:
+                          szCs = OxmlElement('w:szCs')
+                          szCs.set(qn('w:val'), '20')
+                          rPr.append(szCs)
+
+              # Ensure all table cells have proper structure
+              for table in doc.tables:
+                  for row in table.rows:
+                      for cell in row.cells:
+                          for paragraph in cell.paragraphs:
+                              # Ensure paragraph has proper properties
+                              pPr = paragraph._p.get_or_add_pPr()
+
+                              # Ensure all runs have proper font properties
+                              for run in paragraph.runs:
+                                  if run._r.rPr is None:
+                                      run._r.get_or_add_rPr()
+
+                                  rPr = run._r.rPr
+                                  if rPr.find(qn('w:rFonts')) is None:
+                                      rFonts = OxmlElement('w:rFonts')
+                                      rFonts.set(qn('w:ascii'), 'Inter')
+                                      rFonts.set(qn('w:hAnsi'), 'Inter')
+                                      rFonts.set(qn('w:cs'), 'Inter')
+                                      rPr.append(rFonts)
+
+                                  if rPr.find(qn('w:sz')) is None:
+                                      sz = OxmlElement('w:sz')
+                                      sz.set(qn('w:val'), '20')
+                                      rPr.append(sz)
+
+                                  if rPr.find(qn('w:szCs')) is None:
+                                      szCs = OxmlElement('w:szCs')
+                                      szCs.set(qn('w:val'), '20')
+                                      rPr.append(szCs)
+
+              print("✓ Document structure fixed")
+          except Exception as e:
+              print(f"⚠ Warning: Could not fix document structure: {e}")
+
+      # Apply structure fixes
+      fix_document_structure(doc)
+
+      # =========================================================
+      # Set header font sizes
+      # =========================================================
+      def set_header_font_sizes(doc):
+          """Set specific font sizes for headers"""
+          try:
+              # Define header text and their target font sizes
+              headers = {
+                  "OBJECTIVE": 12,
+                  "PATENT-AT-ISSUE": 12,
+                  "CRITERIA FOR THE PUBLICATION SEARCH": 12,
+                  "MAPPINGS BASED ON SELECTED REFERENCES": 12,
+                  "DISCLAIMER": 12,
+                  "APPENDIX A": 12,
+                  "APPENDIX B": 12,
+                  "Search Strategies": 11
+              }
+
+              # Search through all paragraphs to find headers
+              for paragraph in doc.paragraphs:
+                  text = paragraph.text.strip().upper()
+
+                  # Check if this paragraph contains any of our target headers
+                  for header_text, font_size in headers.items():
+                      if header_text.upper() in text:
+                          # Set font size for all runs in this paragraph
+                          for run in paragraph.runs:
+                              run.font.size = Pt(font_size)
+                          print(f"✓ Set {header_text} header to {font_size}pt")
+                          break
+
+              print("✓ Header font sizes updated")
+          except Exception as e:
+              print(f"⚠ Warning: Could not set header font sizes: {e}")
+
+      # Apply header font size changes
+      set_header_font_sizes(doc)
+
+      # =========================================================
+      # Save and download
+      # =========================================================
+      excel_name = os.path.splitext(excel_filename)[0]
+      date_str = datetime.now().strftime("%d%b%Y")  # Format: 08Aug2025
+      output_filename = f"GeneratedReport_{excel_name}_{date_str}.docx"
+      doc.save(output_filename)
+
+      try:
+          files.download(output_filename)
+          print(f"Report generated successfully: {output_filename}")
+      except Exception as e:
+          print(f"Error downloading file: {e}")
+          print(f"File saved as: {output_filename}")
+
+      print("Report generation complete!")
