@@ -356,6 +356,7 @@ class PatentReportGenerator:
             self.isNPL = None                # Boolean: True if Non-Patent Literature
             self.PublicationName = None      # Formatted publication name
             self.RawPublicationNumber = ""   # Original publication number from Excel
+            self.ColIndex = None             # Column index in Excel sheet
 
     def log(self, message):
         """Log a message using the configured callback function."""
@@ -384,7 +385,7 @@ class PatentReportGenerator:
                 try:
                     with open(file_path, "rb") as f:
                         excel_bytes = f.read()
-                    wb = load_workbook(BytesIO(excel_bytes), data_only=True)
+                    wb = load_workbook(BytesIO(excel_bytes), data_only=True, rich_text=True)
                     self.ws = wb.active
                 except Exception as e:
                     self.log(f"Warning: Could not load workbook with openpyxl for precise date formatting: {str(e)}")
@@ -1317,37 +1318,93 @@ class PatentReportGenerator:
                 main_para.paragraph_format.space_after = Pt(0)
                 main_para.paragraph_format.space_before = Pt(0)
                 
+                def apply_rich_text_from_excel(paragraph, ws_cell, default_size=9, bold_color=None):
+                    from openpyxl.cell.rich_text import CellRichText, TextBlock
+                    if ws_cell is None or ws_cell.value is None:
+                        return
+                    cell_val = ws_cell.value
+                    if isinstance(cell_val, CellRichText):
+                        for block in cell_val:
+                            if isinstance(block, TextBlock):
+                                text = str(block.text) if block.text else ""
+                                run = paragraph.add_run(text)
+                                run.font.name = 'Inter'
+                                run.font.size = Pt(block.font.size if block.font and block.font.size else default_size)
+                                run.bold = bool(block.font.bold) if block.font else False
+                                run.italic = bool(block.font.italic) if block.font else False
+                                if run.bold and bold_color is not None:
+                                    run.font.color.rgb = bold_color
+                                else:
+                                    run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+                            else:
+                                run = paragraph.add_run(str(block))
+                                run.font.name = 'Inter'
+                                run.font.size = Pt(default_size)
+                    elif isinstance(cell_val, str):
+                        run = paragraph.add_run(cell_val)
+                        run.font.name = 'Inter'
+                        run.font.size = Pt(default_size)
+
                 mapping_references = [
                     ref for ref in self.sorted_references
                     if self.should_include_ref_in_mapping(ref)
                 ]
                 
-                for i, ref in enumerate(mapping_references):
-                    if i > 0:
-                        spacing_run = main_para.add_run("\n\n")
-                        spacing_run.font.name = 'Inter'
-                        spacing_run.font.size = Pt(9)
-                    
-                    display_rank = self.get_mapping_display_rank(ref)
-                    
-                    if ref.isNPL:
-                        heading_text = f'{display_rank}. "{ref.Title}"'
-                    else:
-                        heading_text = f"{display_rank}. {ref.RawPublicationNumber}"
-                    
-                    heading_run = main_para.add_run(heading_text)
-                    heading_run.font.name = 'Inter'
-                    heading_run.font.size = Pt(9)
-                    heading_run.bold = True
-                    
-                    # Add placeholder text only if not the last reference
-                    if i < len(mapping_references) - 1:
+                excel_row = fragment_rows[frag_idx]
+
+                # Filter to only refs that have content for this fragment
+                refs_with_content = []
+                for ref in mapping_references:
+                    if ref.ColIndex is not None and excel_row != -1 and self.ws is not None:
+                        ws_cell = self.ws.cell(row=excel_row + 1, column=ref.ColIndex + 1)
+                        cell_val = ws_cell.value
+                        has_content = cell_val is not None and str(cell_val).strip() not in ('', 'nan')
+                        if has_content:
+                            refs_with_content.append(ref)
+
+                if refs_with_content:
+                    for i, ref in enumerate(refs_with_content):
+                        if i > 0:
+                            spacing_run = main_para.add_run("\n")
+                            spacing_run.font.name = 'Inter'
+                            spacing_run.font.size = Pt(9)
+
+                        display_rank = self.get_mapping_display_rank(ref)
+
+                        if ref.isNPL:
+                            heading_text = f'{display_rank}. "{ref.Title}"'
+                        else:
+                            heading_text = f"{display_rank}. {ref.RawPublicationNumber}"
+
+                        heading_run = main_para.add_run(heading_text)
+                        heading_run.font.name = 'Inter'
+                        heading_run.font.size = Pt(9)
+                        heading_run.bold = True
+
                         newline_run = main_para.add_run("\n")
                         newline_run.font.name = 'Inter'
                         newline_run.font.size = Pt(9)
-                
+
+                        ws_cell = self.ws.cell(row=excel_row + 1, column=ref.ColIndex + 1)
+                        claim_color = color_cycle[(self.global_color_index - 1) % 2]
+                        apply_rich_text_from_excel(main_para, ws_cell, default_size=9, bold_color=claim_color)
+
+                        if i < len(refs_with_content) - 1:
+                            spacing_run = main_para.add_run("\n")
+                            spacing_run.font.name = 'Inter'
+                            spacing_run.font.size = Pt(9)
+
+                    # Strip trailing newline from last run after the loop
+                    if main_para.runs and main_para.runs[-1].text.endswith('\n'):
+                        main_para.runs[-1].text = main_para.runs[-1].text.rstrip('\n')
+
+                else:
+                    no_entry_run = main_para.add_run("NO ENTRY")
+                    no_entry_run.font.name = 'Inter'
+                    no_entry_run.font.size = Pt(9)
+                    no_entry_run.bold = True
+
                 # Final font setting to ensure no Calibri fallback
-                # Add a final empty run to ensure no unstyled trailing line
                 pPr = main_para._p.get_or_add_pPr()
                 rPr = OxmlElement('w:rPr')
                 rFonts = OxmlElement('w:rFonts')
@@ -1362,9 +1419,6 @@ class PatentReportGenerator:
                 szCs.set(qn('w:val'), '18')
                 rPr.append(szCs)
                 pPr.append(rPr)
-                final_run = main_para.add_run("\n")
-                final_run.font.name = 'Inter'
-                final_run.font.size = Pt(9)
                 self.set_paragraph_default_font(main_para, 'Inter', 9)
 
     def clear_cell_keep_formatting(self, cell):
@@ -1536,6 +1590,7 @@ class PatentReportGenerator:
                     ref.URL = str(self.df.iloc[current_row-2, current_col])
                     ref.isNPL = False if "patents.google" in ref.URL else True
                     self.top_references.append(ref)
+                    ref.ColIndex = current_col
                 else:
                     ref.URL = str(self.df.iloc[current_row-2, current_col])
                     ref.isNPL = False if "patents.google" in ref.URL else True
@@ -1544,6 +1599,7 @@ class PatentReportGenerator:
                     ref.CurrentAssignee = str(self.df.iloc[current_row-5, current_col])
                     ref.PublicationNumber = self.clean_publication_number(self.df.iloc[current_row-9, current_col])
                     self.related_references.append(ref)
+                    ref.ColIndex = current_col
             except IndexError as e:
                 self.log(f"Error processing reference at row {current_row}, col {current_col}: {str(e)}")
 
