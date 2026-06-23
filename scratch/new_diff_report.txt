@@ -1,0 +1,591 @@
+Diff for unlock_password_protected_docx:
+--- main.py: unlock_password_protected_docx
++++ new_notebook.txt: unlock_password_protected_docx
+@@ -1,22 +1,18 @@
+ def unlock_password_protected_docx(file_bytes, password):
+-    """Decrypt password-protected Word file"""
+-    try:
+-        if msoffcrypto is None:
+-            print("⚠ Note: msoffcrypto not available, assuming file is not password-protected")
+-            return io.BytesIO(file_bytes)
+-            
+-        encrypted_file = io.BytesIO(file_bytes)
+-        decrypted_file = io.BytesIO()
++          """Decrypt password-protected Word file"""
++          try:
++              encrypted_file = io.BytesIO(file_bytes)
++              decrypted_file = io.BytesIO()
+ 
+-        office_file = msoffcrypto.OfficeFile(encrypted_file)
+-        office_file.load_key(password=password)
+-        office_file.decrypt(decrypted_file)
+...truncated
+
+Diff for extract_mapping_section:
+--- main.py: extract_mapping_section
++++ new_notebook.txt: extract_mapping_section
+@@ -1,72 +1,24 @@
+ def extract_mapping_section(edited_doc):
+-    """Extract the Mapping section from edited document"""
+-    if not edited_doc:
+-        return []
+-    body = edited_doc.element.body
+-    elements = []
+-    start_found = False
+-    
+-    # Debug: Print all paragraph text to help identify the correct patterns
+-    print("DEBUG: Searching for mapping section in edited document...")
+-    for i, child in enumerate(list(body)):
+-        if child.tag == qn('w:p'):
+-            p = Paragraph(child, edited_doc)
+-            text = p.text.strip()
+-            if text and len(text) < 100:  # Only print short text (likely headings)
+-                print(f"  Paragraph {i}: '{text}'")
+-    
+...truncated
+
+Diff for extract_criteria_section:
+--- main.py: extract_criteria_section
++++ new_notebook.txt: extract_criteria_section
+@@ -1,69 +1,23 @@
+ def extract_criteria_section(edited_doc):
+-    """Extract the Criteria for Publication Search section from edited document"""
+-    if not edited_doc:
+-        return []
+-    body = edited_doc.element.body
+-    elements = []
+-    start_found = False
+-    
+-    # Debug: Print all paragraph text to help identify the correct patterns
+-    print("DEBUG: Searching for criteria section in edited document...")
+-    for i, child in enumerate(list(body)):
+-        if child.tag == qn('w:p'):
+-            p = Paragraph(child, edited_doc)
+-            text = p.text.strip()
+-            if text and len(text) < 100:  # Only print short text (likely headings)
+-                print(f"  Paragraph {i}: '{text}'")
+-    
+...truncated
+
+Function remove_section is identical (modulo self).
+
+Diff for insert_element_after:
+--- main.py: insert_element_after
++++ new_notebook.txt: insert_element_after
+@@ -1,45 +1,33 @@
+ def insert_element_after(anchor, element):
+-    """Insert element after anchor, sanitizing relationships"""
+-    try:
+-        new_elem = deepcopy(element)
+-        # Sanitize relationships/hyperlinks copied from another document
+-        def _strip_relationship_ids(node):
+-            # Remove any r:id attributes to avoid broken relationships
+-            # BUT preserve image relationships by skipping certain element types
+-            for el in node.iter():
+-                # Don't strip relationship IDs from inline drawings/images
+-                if 'pict' in el.tag.lower() or 'drawing' in el.tag.lower() or 'inline' in el.tag.lower():
+-                    continue
+-                # Remove relationship id attributes if present
+-                for attr in list(el.attrib.keys()):
+-                    if attr.endswith('}id'):
+-                        del el.attrib[attr]
+-        def _flatten_hyperlinks(node):
+...truncated
+
+Diff for get_short_patent_name_with_suffix:
+--- main.py: get_short_patent_name_with_suffix
++++ new_notebook.txt: get_short_patent_name_with_suffix
+@@ -1,19 +1,19 @@
+-def get_short_patent_name_with_suffix(self, patent_number):
+-        """Updated to handle non-US patents"""
+-        cleaned = patent_number.replace(',', '').replace(' ', '')
++def get_short_patent_name_with_suffix(patent_number):
++          """Updated to handle non-US patents"""
++          cleaned = patent_number.replace(',', '').replace(' ', '')
+ 
+-        # Check if US patent and remove US prefix
+-        is_us_patent = cleaned.upper().startswith('US')
+-        if is_us_patent:
+-            cleaned = cleaned[2:]
++          # Check if US patent and remove US prefix
++          is_us_patent = cleaned.upper().startswith('US')
++          if is_us_patent:
++              cleaned = cleaned[2:]
+ 
+-        match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
+...truncated
+
+Diff for get_short_patent_name_v2:
+--- main.py: get_short_patent_name_v2
++++ new_notebook.txt: get_short_patent_name_v2
+@@ -1,20 +1,20 @@
+-def get_short_patent_name_v2(self, patent_number):
+-        """Updated to handle non-US patents"""
+-        cleaned = patent_number.replace(',', '').replace(' ', '')
++def get_short_patent_name_v2(patent_number):
++          """Updated to handle non-US patents"""
++          cleaned = patent_number.replace(',', '').replace(' ', '')
+ 
+-        # Check if US patent and remove US prefix
+-        is_us_patent = cleaned.upper().startswith('US')
+-        if is_us_patent:
+-            cleaned = cleaned[2:]
++          # Check if US patent and remove US prefix
++          is_us_patent = cleaned.upper().startswith('US')
++          if is_us_patent:
++              cleaned = cleaned[2:]
+ 
+-        match = re.match(r'([^\d]*)(\d+)([A-Z]\d{1,2})?$', cleaned)
+...truncated
+
+Diff for format_patent_display:
+--- main.py: format_patent_display
++++ new_notebook.txt: format_patent_display
+@@ -1,27 +1,27 @@
+-def format_patent_display(self, patent_number, include_prefix=True):
+-        """
+-        Format patent number for display based on country code
+-        - US patents: "U.S. Patent No. 10,123,456"
+-        - Non-US patents: "CN12345678A" (NO prefix, just raw number)
+-        """
+-        if pd.isna(patent_number) or not patent_number:
+-            return ""
++def format_patent_display(patent_number, include_prefix=True):
++          """
++          Format patent number for display based on country code
++          - US patents: "U.S. Patent No. 10,123,456"
++          - Non-US patents: "CN12345678A" (NO prefix, just raw number)
++          """
++          if pd.isna(patent_number) or not patent_number:
++              return ""
+ 
+...truncated
+
+Diff for extract_patent_number:
+--- main.py: extract_patent_number
++++ new_notebook.txt: extract_patent_number
+@@ -1,23 +1,21 @@
+-def extract_patent_number(self, cell_value):
+-        """
+-        Extract patent number from cell value that may contain extra text.
+-        Handles various patent number formats including US patents with optional suffixes.
+-        """
+-        if pd.isna(cell_value):
+-            return ""
++def extract_patent_number(cell_value):
++          """Extract patent number from cell value that may contain extra text."""
++          if pd.isna(cell_value):
++              return ""
+ 
+-        cell_str = str(cell_value).strip()
++          cell_str = str(cell_value).strip()
+ 
+-        # Pattern to match US patent numbers with optional suffix
+-        pattern = r'(US\d{7,11}(?:[A-Z]\d{1,2})?)'
+...truncated
+
+Diff for parse_claim_numbers:
+--- main.py: parse_claim_numbers
++++ new_notebook.txt: parse_claim_numbers
+@@ -1,40 +1,41 @@
+-def parse_claim_numbers(self, claim_input, patent_number):
+-        """
+-        Parse claim numbers from various input formats:
+-        - "1-30" -> [1, 2, 3, ..., 30]
+-        - "All" or "all" -> fetch all claims from Google Patents
+-        - "1, 5, 10" -> [1, 5, 10]
+-        - "1-5, 10, 15-20" -> [1, 2, 3, 4, 5, 10, 15, 16, 17, 18, 19, 20]
+-        """
+-        if pd.isna(claim_input):
+-            return []
++def parse_claim_numbers(claim_input, patent_number):
++          """
++          Parse claim numbers from various input formats:
++          - "1-30" -> [1, 2, 3, ..., 30]
++          - "All" or "all" -> fetch all claims from Google Patents
++          - "1, 5, 10" -> [1, 5, 10]
++          - "1-5, 10, 15-20" -> [1, 2, 3, 4, 5, 10, 15, 16, 17, 18, 19, 20]
+...truncated
+
+Diff for get_all_claim_numbers_from_google:
+--- main.py: get_all_claim_numbers_from_google
++++ new_notebook.txt: get_all_claim_numbers_from_google
+@@ -1,25 +1,25 @@
+-def get_all_claim_numbers_from_google(self, patent_number):
+-        """Fetch all claim numbers from Google Patents"""
+-        try:
+-            url = f"https://patents.google.com/patent/{patent_number}/en"
+-            response = requests.get(url, timeout=10)
+-            if response.status_code != 200:
+-                return []
++def get_all_claim_numbers_from_google(patent_number):
++          """Fetch all claim numbers from Google Patents"""
++          try:
++              url = f"https://patents.google.com/patent/{patent_number}/en"
++              response = requests.get(url, timeout=10)
++              if response.status_code != 200:
++                  return []
+ 
+-            soup = BeautifulSoup(response.content, "html.parser")
+-            claims_div = soup.find("section", itemprop="claims")
+...truncated
+
+Diff for format_claims_as_ranges:
+--- main.py: format_claims_as_ranges
++++ new_notebook.txt: format_claims_as_ranges
+@@ -1,49 +1,49 @@
+-def format_claims_as_ranges(self, claim_numbers_list):
+-        """
+-        Convert list of claim numbers to range format.
+-        Example: [1,2,3,5,6,10] -> "1-3, 5, 6, and 10"
+-        Example: [1,2,3,4,5] -> "1-5"
+-        """
+-        if not claim_numbers_list:
+-            return ""
++def format_claims_as_ranges(claim_numbers_list):
++          """
++          Convert list of claim numbers to range format.
++          Example: [1,2,3,5,6,10] -> "1-3, 5, 6, and 10"
++          Example: [1,2,3,4,5] -> "1-5"
++          """
++          if not claim_numbers_list:
++              return ""
+ 
+...truncated
+
+Diff for format_date:
+--- main.py: format_date
++++ new_notebook.txt: format_date
+@@ -1,89 +1,41 @@
+-def format_date(self, row, col):
+-        """
+-        Feb10: Return the date as Excel displays it, using the cell's number_format
+-        when possible. row/col are 0-based indices into self.df (same as df.iloc).
+-        Falls back to legacy string-based handling when openpyxl context is absent.
+-        """
+-        # Primary path: use openpyxl worksheet if available
+-        if getattr(self, "ws", None) is not None and from_excel is not None:
+-            try:
+-                cell = self.ws.cell(row=row + 1, column=col + 1)  # openpyxl is 1-based
+-                v = cell.value
+-                fmt = (cell.number_format or "").lower()
++def format_date(row, col):
++          """
++          Return the date exactly as Excel *displays* it (using number_format).
++          Works even if Excel stores it as a real date but shows 'MMMM YYYY' etc.
++          row/col are 0-based dataframe coordinates (same as df.iloc).
+...truncated
+
+Diff for isUSPatent:
+--- main.py: isUSPatent
++++ new_notebook.txt: isUSPatent
+@@ -1,19 +1,19 @@
+-def isUSPatent(self, ref):
+-        """Updated to properly format both US and non-US patents"""
+-        if ref.PublicationNumber.startswith("US"):
+-            # US Patent logic (existing)
+-            name = ref.PublicationNumber[2:]
+-            name = re.sub(r'[^\d]', '', name)
+-            if len(name) >= 11 and name[:4].isdigit():
+-                year = name[:4]
+-                pub_seq = name[4:11]
+-                ref.PublicationName = f"{year}/{pub_seq}"
+-            else:
+-                try:
+-                    number = int(name.lstrip("0"))
+-                    ref.PublicationName = "{:,}".format(number)
+-                except:
+-                    ref.PublicationName = name
+-        else:
+...truncated
+
+Diff for fetch_abstract:
+--- main.py: fetch_abstract
++++ new_notebook.txt: fetch_abstract
+@@ -1,14 +1,13 @@
+-def fetch_abstract(self, publication_number):
+-        url = f"https://patents.google.com/patent/{publication_number}/en"
+-        try:
+-            response = requests.get(url, timeout=10)
+-            if response.status_code != 200:
+-                return "Abstract not found."
+-            soup = BeautifulSoup(response.content, "html.parser")
+-            abstract_tag = soup.find("meta", {"name": "DC.description"})
+-            if abstract_tag:
+-                return abstract_tag.get("content", "Abstract not found.")
+-            return "Abstract not found."
+-        except Exception as e:
+-            self.log(f"Error fetching abstract: {str(e)}")
+-            return "Abstract fetch error."
++def fetch_abstract(publication_number):
++          url = f"https://patents.google.com/patent/{publication_number}/en"
++          try:
+...truncated
+
+Diff for extract_claim_fragments_from_excel:
+--- main.py: extract_claim_fragments_from_excel
++++ new_notebook.txt: extract_claim_fragments_from_excel
+@@ -1,30 +1,24 @@
+-def extract_claim_fragments_from_excel(self, df):
+-        """
+-        Feb10: Extract claim fragments starting from any recognized Expert/Reviewer Comments row.
+-        Supports multiple header labels instead of only 'Expert Comments'.
+-        """
+-        claim_parts = []
+-        try:
+-            expert_comments_variations = ['Expert Comments', 'Expert/Reviewer Comments', 'Reviewer Comments']
+-            claim_start_idx = None
++def extract_claim_fragments_from_excel(df):
++          claim_parts = []
+ 
+-            for variation in expert_comments_variations:
+-                try:
+-                    claim_start_idx = df[df[0] == variation].index[0] + 1
+-                    break
+-                except (IndexError, KeyError):
+...truncated
+
+Diff for format_number_with_commas:
+--- main.py: format_number_with_commas
++++ new_notebook.txt: format_number_with_commas
+@@ -1,7 +1,8 @@
+-def format_number_with_commas(self, number_str):
+-        match = re.match(r"\d+", number_str)
+-        if match:
+-            digits = match.group()
+-            return "{:,}".format(int(digits))
+-        else:
+-            return number_str
++def format_number_with_commas(number_str):
++          # Extract only the digits at the start
++          match = re.match(r"\d+", number_str)
++          if match:
++              digits = match.group()
++              return "{:,}".format(int(digits))
++          else:
++              return number_str
+
+Diff for get_claim_from_google_patents:
+--- main.py: get_claim_from_google_patents
++++ new_notebook.txt: get_claim_from_google_patents
+@@ -1,33 +1,30 @@
+-def get_claim_from_google_patents(self, patent_number, claim_num):
+-        try:
+-            url = f"https://patents.google.com/patent/{patent_number}/en"
+-            response = requests.get(url, timeout=10)
+-            if response.status_code != 200:
+-                self.log(f"Failed to fetch claim {claim_num}: HTTP {response.status_code}")
+-                return None
+-            soup = BeautifulSoup(response.content, "html.parser")
+-            claims_div = soup.find("section", itemprop="claims")
+-            if not claims_div:
+-                self.log(f"No claims section found for claim {claim_num}")
+-                return None
+-            claims_text = claims_div.get_text(separator="\n")
+-            claim_lines = claims_text.strip().split("\n")
+-            claim_full_text = ""
+-            collect = False
+-            for line in claim_lines:
+...truncated
+
+Diff for clone_row_after:
+--- main.py: clone_row_after
++++ new_notebook.txt: clone_row_after
+@@ -1,10 +1,6 @@
+-def clone_row_after(self, table, template_row):
+-        try:
+-            tbl = table._tbl
+-            tr = template_row._tr
+-            new_tr = deepcopy(tr)
+-            tbl.append(new_tr)
+-            return table.rows[-1]
+-        except Exception as e:
+-            self.log(f"Error cloning table row: {str(e)}")
+-            raise
++def clone_row_after(table, template_row):
++          tbl = table._tbl
++          tr = template_row._tr
++          new_tr = deepcopy(tr)
++          tbl.append(new_tr)
++          return table.rows[-1]
+
+Diff for clear_cell:
+--- main.py: clear_cell
++++ new_notebook.txt: clear_cell
+@@ -1,9 +1,6 @@
+-def clear_cell(self, cell):
+-        try:
+-            for p in cell.paragraphs:
+-                for r in p.runs:
+-                    r.text = ""
+-                if len(p.runs) == 0:
+-                    p.add_run("")
+-        except Exception as e:
+-            self.log(f"Error clearing cell: {str(e)}")
++def clear_cell(cell):
++          for p in cell.paragraphs:
++              for r in p.runs:
++                  r.text = ""
++              if len(p.runs) == 0:
++                  p.add_run("")
+
+Diff for set_cell_text:
+--- main.py: set_cell_text
++++ new_notebook.txt: set_cell_text
+@@ -1,13 +1,10 @@
+-def set_cell_text(self, cell, text, bold=False, size=10, color_rgb=None):
+-        try:
+-            self.clear_cell(cell)
+-            p = cell.paragraphs[0]
+-            run = p.runs[0]
+-            run.text = text
+-            run.font.name = 'Inter'
+-            run.font.size = Pt(size)
+-            run.bold = bold
+-            if color_rgb:
+-                run.font.color.rgb = color_rgb
+-        except Exception as e:
+-            self.log(f"Error setting cell text: {str(e)}")
++def set_cell_text(cell, text, bold=False, size=10, color_rgb=None):
++          clear_cell(cell)
++          p = cell.paragraphs[0]
++          run = p.runs[0]
+...truncated
+
+Diff for add_hyperlink_to_paragraph:
+--- main.py: add_hyperlink_to_paragraph
++++ new_notebook.txt: add_hyperlink_to_paragraph
+@@ -1,32 +1,31 @@
+-def add_hyperlink_to_paragraph(self, doc, paragraph, url, text, size=10, color_hex="0000FF"):
+-        try:
+-            part = doc.part
+-            r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+-            hyperlink = OxmlElement('w:hyperlink')
+-            hyperlink.set(qn('r:id'), r_id)
+-            run_element = OxmlElement('w:r')
+-            run_props = OxmlElement('w:rPr')
+-            font_element = OxmlElement('w:rFonts')
+-            font_element.set(qn('w:ascii'), 'Inter')
+-            font_element.set(qn('w:hAnsi'), 'Inter')
+-            run_props.append(font_element)
+-            size_element = OxmlElement('w:sz')
+-            size_element.set(qn('w:val'), str(size * 2))
+-            run_props.append(size_element)
+-            size_cs_element = OxmlElement('w:szCs')
+-            size_cs_element.set(qn('w:val'), str(size * 2))
+...truncated
+
+Diff for simple_replace_section:
+--- main.py: simple_replace_section
++++ new_notebook.txt: simple_replace_section
+@@ -1,129 +1,121 @@
+-def simple_replace_section(self, src_doc, dst_doc, start_heading_text, end_heading_text):
+-        """
+-        Simple section replacement that just copies content without complex boundary detection.
+-        Matches colab implementation (lines 2399-2485).
+-        """
+-        try:
+-            self.log(f"    🔍 Looking for '{start_heading_text}' in source document...")
+-            start_p = self.find_paragraph_contains(src_doc, start_heading_text)
+-            if not start_p:
+-                self.log(f"    ❌ Could not find '{start_heading_text}' in source document")
+-                return False
++def simple_replace_section(src_doc, dst_doc, start_heading_text, end_heading_text):
++          """Simple section replacement that just copies content without complex boundary detection"""
++          print(f"    🔍 Looking for '{start_heading_text}' in source document...")
++          start_p = find_paragraph_contains(src_doc, start_heading_text)
++          if not start_p:
++              print(f"    ❌ Could not find '{start_heading_text}' in source document")
+...truncated
+
+Diff for fix_document_structure:
+--- main.py: fix_document_structure
++++ new_notebook.txt: fix_document_structure
+@@ -1,66 +1,66 @@
+-def fix_document_structure(self, doc):
+-        """Fix common XML structure issues that cause Word warnings"""
+-        try:
+-            # Ensure all paragraphs have proper structure
+-            for paragraph in doc.paragraphs:
+-                # Ensure paragraph has proper properties
+-                pPr = paragraph._p.get_or_add_pPr()
++def fix_document_structure(doc):
++          """Fix common XML structure issues that cause Word warnings"""
++          try:
++              # Ensure all paragraphs have proper structure
++              for paragraph in doc.paragraphs:
++                  # Ensure paragraph has proper properties
++                  pPr = paragraph._p.get_or_add_pPr()
+ 
+-                # Ensure all runs have proper font properties
+-                for run in paragraph.runs:
+...truncated
+
+Diff for set_header_font_sizes:
+--- main.py: set_header_font_sizes
++++ new_notebook.txt: set_header_font_sizes
+@@ -1,31 +1,31 @@
+-def set_header_font_sizes(self, doc):
+-        """Set specific font sizes for headers"""
+-        try:
+-            # Define header text and their target font sizes
+-            headers = {
+-                "OBJECTIVE": 12,
+-                "PATENT-AT-ISSUE": 12,
+-                "CRITERIA FOR THE PUBLICATION SEARCH": 12,
+-                "MAPPINGS BASED ON SELECTED REFERENCES": 12,
+-                "DISCLAIMER": 12,
+-                "APPENDIX A": 12,
+-                "APPENDIX B": 12,
+-                "Search Strategies": 11
+-            }
++def set_header_font_sizes(doc):
++          """Set specific font sizes for headers"""
++          try:
+...truncated
+
+Diff for ensure_orr_header_and_spacing:
+--- main.py: ensure_orr_header_and_spacing
++++ new_notebook.txt: ensure_orr_header_and_spacing
+@@ -1,208 +1,322 @@
+-def ensure_orr_header_and_spacing(self, doc):
+-        """
+-        Ensure an ORR header exists immediately before the ORR table, and add
+-        a page break before the Patent-at-Issue heading when it follows the ORR table.
+-        Also normalizes Patent-at-Issue heading formatting.
+-        """
+-        try:
+-            from docx.text.paragraph import Paragraph
+-            from docx.table import Table
+-            from docx.oxml import OxmlElement
+-            from docx.oxml.ns import qn
+-
+-            body = doc.element.body
+-            elems = list(body)
+-
+-            # Locate ORR heading if present
+-            orr_heading_idx = None
+...truncated
+
+Diff for remove_stray_orr_heading:
+--- main.py: remove_stray_orr_heading
++++ new_notebook.txt: remove_stray_orr_heading
+@@ -1,35 +1,32 @@
+-def remove_stray_orr_heading(self, doc):
+-        """
+-        Remove an ORR heading that appears immediately before Patent-at-Issue
+-        without an intervening ORR table.
+-        """
+-        try:
+-            body = doc.element.body
+-            elems = list(body)
+-            from docx.text.paragraph import Paragraph
+-            for i, el in enumerate(elems):
+-                if el.tag.endswith('p'):
+-                    p = Paragraph(el, doc)
+-                    txt = (p.text or '').strip().lower()
+-                    if txt == 'other related references found':
+-                        # Scan forward until next major section or a table
+-                        j = i + 1
+-                        found_table = False
+...truncated

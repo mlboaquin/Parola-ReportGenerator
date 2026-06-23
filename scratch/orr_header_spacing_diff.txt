@@ -1,0 +1,533 @@
+--- main.py
++++ new_notebook.txt
+@@ -1,208 +1,322 @@
+-def ensure_orr_header_and_spacing(self, doc):
+-        """
+-        Ensure an ORR header exists immediately before the ORR table, and add
+-        a page break before the Patent-at-Issue heading when it follows the ORR table.
+-        Also normalizes Patent-at-Issue heading formatting.
+-        """
+-        try:
+-            from docx.text.paragraph import Paragraph
+-            from docx.table import Table
+-            from docx.oxml import OxmlElement
+-            from docx.oxml.ns import qn
+-
+-            body = doc.element.body
+-            elems = list(body)
+-
+-            # Locate ORR heading if present
+-            orr_heading_idx = None
+-            for i, el in enumerate(elems):
+-                if el.tag.endswith('p'):
+-                    p = Paragraph(el, doc)
+-                    text = (p.text or '').strip().lower()
+-                    if 'other related references' in text:
+-                        orr_heading_idx = i
+-                        break
+-
+-            # Locate ORR table after heading
+-            orr_table_idx = None
+-            if orr_heading_idx is not None:
+-                for j in range(orr_heading_idx + 1, len(elems)):
+-                    if elems[j].tag.endswith('tbl'):
+-                        orr_table_idx = j
+-                        break
+-
+-            # Fallback: detect ORR table by header texts
+-            if orr_table_idx is None:
+-                for i, el in enumerate(elems):
+-                    if el.tag.endswith('tbl'):
+-                        tbl = Table(el, doc)
+-                        try:
+-                            if len(tbl.rows) > 0 and len(tbl.rows[0].cells) >= 2:
+-                                row_texts = [
+-                                    " ".join((p.text or '') for p in c.paragraphs).strip().lower()
+-                                    for c in tbl.rows[0].cells
+-                                ]
+-                                joined = " | ".join(row_texts)
+-                                if ('references found' in joined) and (
+-                                    'assignee' in joined or 'author/publisher' in joined or 'inventor' in joined
+-                                ):
+-                                    orr_table_idx = i
+-                                    break
+-                        except Exception:
+-                            continue
+-
+-            if orr_table_idx is not None:
+-                # If no ORR heading exists anywhere, insert one immediately before the table
+-                if orr_heading_idx is None:
+-                    has_header = False
+-                    elems = list(body)
+-                    if orr_table_idx - 1 >= 0 and elems[orr_table_idx - 1].tag.endswith('p'):
+-                        prev_p = Paragraph(elems[orr_table_idx - 1], doc)
+-                        if (prev_p.text or '').strip().lower() == 'other related references found':
+-                            has_header = True
+-                    if not has_header:
+-                        new_p = OxmlElement('w:p')
+-                        r = OxmlElement('w:r')
+-                        rPr = OxmlElement('w:rPr')
+-                        rFonts = OxmlElement('w:rFonts')
+-                        rFonts.set(qn('w:ascii'), 'Inter')
+-                        rFonts.set(qn('w:hAnsi'), 'Inter')
+-                        rPr.append(rFonts)
+-                        b = OxmlElement('w:b')
+-                        rPr.append(b)
+-                        sz = OxmlElement('w:sz')
+-                        sz.set(qn('w:val'), '20')  # 10pt
+-                        rPr.append(sz)
+-                        szCs = OxmlElement('w:szCs')
+-                        szCs.set(qn('w:val'), '20')
+-                        rPr.append(szCs)
+-                        color = OxmlElement('w:color')
+-                        color.set(qn('w:val'), '000000')
+-                        rPr.append(color)
+-                        r.append(rPr)
+-                        t = OxmlElement('w:t')
+-                        t.text = 'OTHER RELATED REFERENCES FOUND'
+-                        r.append(t)
+-                        pPr = OxmlElement('w:pPr')
+-                        spacing = OxmlElement('w:spacing')
+-                        spacing.set(qn('w:after'), '160')  # 8pt
+-                        spacing.set(qn('w:line'), '216')   # ~1.08
+-                        spacing.set(qn('w:lineRule'), 'auto')
+-                        pPr.append(spacing)
+-                        new_p.append(pPr)
+-                        new_p.append(r)
+-                        body.insert(orr_table_idx, new_p)
+-
+-                # Add page break before Patent-at-Issue if it immediately follows a table
+-                pat_p = None
+-                pat_idx = None
+-                for j, el in enumerate(list(body)):
+-                    if el.tag.endswith('p'):
+-                        p = Paragraph(el, doc)
+-                        if (p.text or '').strip().lower() == 'patent-at-issue':
+-                            pat_p = p
+-                            pat_idx = j
+-                            break
+-                if pat_p is not None:
+-                    elems2 = list(body)
+-                    prev_is_tbl = (pat_idx - 1 >= 0 and elems2[pat_idx - 1].tag.endswith('tbl'))
+-                    if prev_is_tbl:
+-                        # Insert a separate page-break paragraph BEFORE the heading paragraph
+-                        br = OxmlElement('w:br')
+-                        br.set(qn('w:type'), 'page')
+-                        run_element = OxmlElement('w:r')
+-                        rPr = OxmlElement('w:rPr')
+-                        rFonts = OxmlElement('w:rFonts')
+-                        rFonts.set(qn('w:ascii'), 'Inter')
+-                        rFonts.set(qn('w:hAnsi'), 'Inter')
+-                        rPr.append(rFonts)
+-                        run_element.append(rPr)
+-                        run_element.append(br)
+-                        new_break_p = OxmlElement('w:p')
+-                        new_break_p.append(run_element)
+-                        pat_p._p.addprevious(new_break_p)
+-
+-                    # Normalize PATENT-AT-ISSUE heading formatting with robust style and spacing
+-                    try:
+-                        # Apply Heading 1 (fallbacks included)
+-                        try:
+-                            pat_p.style = 'Heading 1'
+-                        except Exception:
+-                            try:
+-                                pat_p.style = 'Heading1'
+-                            except Exception:
+-                                pass
+-
+-                        # Enforce Heading 1 at XML level (pStyle) and outline level 0
+-                        pPr = pat_p._p.get_or_add_pPr()
+-                        # Remove existing pStyle to avoid duplicates
+-                        for el in list(pPr):
+-                            if el.tag == qn('w:pStyle'):
+-                                pPr.remove(el)
+-                        pStyle = OxmlElement('w:pStyle')
+-                        pStyle.set(qn('w:val'), 'Heading1')
+-                        pPr.append(pStyle)
+-                        # Ensure outline level 0
+-                        for el in list(pPr):
+-                            if el.tag == qn('w:outlineLvl'):
+-                                pPr.remove(el)
+-                        outline = OxmlElement('w:outlineLvl')
+-                        outline.set(qn('w:val'), '0')
+-                        pPr.append(outline)
+-
+-                        # Paragraph spacing
+-                        pf = pat_p.paragraph_format
+-                        pf.line_spacing = 1.0
+-                        pf.space_before = Pt(0)
+-                        pf.space_after = Pt(0)
+-
+-                        # Hard enforce 0pt spacing at XML level and disable auto-spacing
+-                        spacing_el = None
+-                        for el in list(pPr):
+-                            if el.tag == qn('w:spacing'):
+-                                spacing_el = el
+-                                break
+-                        if spacing_el is None:
+-                            spacing_el = OxmlElement('w:spacing')
+-                            pPr.append(spacing_el)
+-                        spacing_el.set(qn('w:before'), '0')
+-                        spacing_el.set(qn('w:after'), '0')
+-                        spacing_el.set(qn('w:beforeAutospacing'), '0')
+-                        spacing_el.set(qn('w:afterAutospacing'), '0')
+-                        spacing_el.set(qn('w:lineRule'), 'auto')
+-
+-                        # Make sure the heading has visible text and correct run formatting
+-                        if not pat_p.runs:
+-                            pat_p.add_run("")
+-                        for r in pat_p.runs:
+-                            if r.text:
+-                                r.text = r.text.upper()
+-                            r.font.bold = True
+-                            r.font.size = Pt(12)
+-                            try:
+-                                r.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
+-                            except Exception:
+-                                pass
+-
+-                        # Normalize the next paragraph's spacing-before to 0 to eliminate visual gap
+-                        nxt_el = pat_p._p.getnext()
+-                        if nxt_el is not None and nxt_el.tag == qn('w:p'):
+-                            from docx.text.paragraph import Paragraph as _Paragraph
+-                            nxt_p = _Paragraph(nxt_el, doc)
+-                            npf = nxt_p.paragraph_format
+-                            npf.space_before = Pt(0)
+-                            pPr_n = nxt_p._p.get_or_add_pPr()
+-                            spacing_n = None
+-                            for el in list(pPr_n):
+-                                if el.tag == qn('w:spacing'):
+-                                    spacing_n = el
+-                                    break
+-                            if spacing_n is None:
+-                                spacing_n = OxmlElement('w:spacing')
+-                                pPr_n.append(spacing_n)
+-                            spacing_n.set(qn('w:before'), '0')
+-                            spacing_n.set(qn('w:beforeAutospacing'), '0')
+-                    except Exception:
+-                        pass
+-        except Exception:
+-            pass
++def ensure_orr_header_and_spacing(doc):
++          try:
++              from docx.text.paragraph import Paragraph
++              from docx.table import Table
++              from docx.oxml import OxmlElement
++              from docx.oxml.ns import qn
++
++              body = doc.element.body
++              elems = list(body)
++
++              # Strategy 1: Find ORR heading and then the first table after it
++              print("  🔍 [ORR-FIX] Looking for ORR heading paragraph...")
++              orr_heading_idx = None
++              for i, el in enumerate(elems):
++                  if el.tag.endswith('p'):
++                      p = Paragraph(el, doc)
++                      text = (p.text or '').strip().lower()
++                      if 'other related references' in text:
++                          orr_heading_idx = i
++                          print(f"  ✅ [ORR-FIX] ORR heading found at index {i}: '{p.text.strip()}'")
++                          break
++
++              orr_table_idx = None
++              if orr_heading_idx is not None:
++                  print("  🔍 [ORR-FIX] Scanning for first table after ORR heading...")
++                  for j in range(orr_heading_idx + 1, len(elems)):
++                      if elems[j].tag.endswith('tbl'):
++                          orr_table_idx = j
++                          print(f"  ✅ [ORR-FIX] ORR table located at index {j} (after heading)")
++                          break
++
++              # Strategy 2 (fallback): Locate table heuristically by header texts
++              if orr_table_idx is None:
++                  print("  🔍 [ORR-FIX] Fallback: scanning tables by header row text match...")
++                  for i, el in enumerate(elems):
++                      if el.tag.endswith('tbl'):
++                          tbl = Table(el, doc)
++                          try:
++                              if len(tbl.rows) > 0 and len(tbl.rows[0].cells) >= 2:
++                                  row_texts = [
++                                      " ".join((p.text or '') for p in c.paragraphs).strip().lower()
++                                      for c in tbl.rows[0].cells
++                                  ]
++                                  joined = " | ".join(row_texts)
++                                  if ('references found' in joined) and (
++                                      'assignee' in joined or 'author/publisher' in joined or 'inventor' in joined
++                                  ):
++                                      orr_table_idx = i
++                                      print(f"  ✅ [ORR-FIX] ORR table detected at index {i} by fallback (header row: '{joined}')")
++                                      break
++                          except Exception:
++                              print(f"  ⚠️  [ORR-FIX] Error reading table at index {i}, skipping")
++                              continue
++
++              if orr_table_idx is not None:
++                  # If an ORR heading exists anywhere, skip generating another header near the table
++                  if orr_heading_idx is not None:
++                      print("  ℹ️  [ORR-FIX] ORR heading already exists; skipping header insertion to avoid duplicate")
++                  else:
++                      # Ensure header paragraph exists immediately before the table
++                      has_header = False
++                      if orr_table_idx - 1 >= 0 and elems[orr_table_idx - 1].tag.endswith('p'):
++                          prev_p = Paragraph(elems[orr_table_idx - 1], doc)
++                          if (prev_p.text or '').strip().lower() == 'other related references found':
++                              has_header = True
++                      print(f"  🔍 [ORR-FIX] Header present before table: {has_header}")
++
++                      if not has_header:
++                          print("  ➕ [ORR-FIX] Inserting 'OTHER RELATED REFERENCES FOUND' header before table")
++                          new_p = OxmlElement('w:p')
++                          r = OxmlElement('w:r')
++                          rPr = OxmlElement('w:rPr')
++                          rFonts = OxmlElement('w:rFonts')
++                          rFonts.set(qn('w:ascii'), 'Inter')
++                          rFonts.set(qn('w:hAnsi'), 'Inter')
++                          rFonts.set(qn('w:cs'), 'Inter')
++                          rPr.append(rFonts)
++                          b = OxmlElement('w:b')
++                          rPr.append(b)
++                          sz = OxmlElement('w:sz')
++                          sz.set(qn('w:val'), '20')  # 10pt
++                          rPr.append(sz)
++                          szCs = OxmlElement('w:szCs')
++                          szCs.set(qn('w:val'), '20')
++                          rPr.append(szCs)
++                          color = OxmlElement('w:color')
++                          color.set(qn('w:val'), '000000')
++                          rPr.append(color)
++                          r.append(rPr)
++                          t = OxmlElement('w:t')
++                          t.text = 'OTHER RELATED REFERENCES FOUND'
++                          r.append(t)
++                          pPr = OxmlElement('w:pPr')
++                          spacing = OxmlElement('w:spacing')
++                          spacing.set(qn('w:after'), '160')  # 8pt
++                          spacing.set(qn('w:line'), '216')   # 1.08 * 200
++                          spacing.set(qn('w:lineRule'), 'auto')
++                          pPr.append(spacing)
++                          new_p.append(pPr)
++                          new_p.append(r)
++                          body.insert(orr_table_idx, new_p)
++                          print("  ✅ [ORR-FIX] ORR header inserted")
++
++                  # Ensure a page break before Patent-at-Issue if it immediately follows the ORR table
++                  # Find Patent-at-Issue paragraph index
++                  pat_p = None
++                  pat_idx = None
++                  for j, el in enumerate(list(body)):
++                      if el.tag.endswith('p'):
++                          p = Paragraph(el, doc)
++                          if (p.text or '').strip().lower() == 'patent-at-issue':
++                              pat_p = p
++                              pat_idx = j
++                              break
++                  if pat_p is not None:
++                      elems2 = list(body)
++                      # If the immediately previous element is the ORR table, add a page break at start of Patent-at-Issue
++                      prev_is_tbl = (pat_idx - 1 >= 0 and elems2[pat_idx - 1].tag.endswith('tbl'))
++                      print(f"  🔍 [ORR-FIX] Patent-at-Issue at index {pat_idx}, previous is table: {prev_is_tbl}")
++                      if prev_is_tbl:
++                          # Insert a separate paragraph containing a page break BEFORE the Patent-at-Issue paragraph
++                          br = OxmlElement('w:br')
++                          br.set(qn('w:type'), 'page')
++                          run_element = OxmlElement('w:r')
++                          rPr = OxmlElement('w:rPr')
++                          rFonts = OxmlElement('w:rFonts')
++                          rFonts.set(qn('w:ascii'), 'Inter')
++                          rFonts.set(qn('w:hAnsi'), 'Inter')
++                          rFonts.set(qn('w:cs'), 'Inter')
++                          rPr.append(rFonts)
++                          run_element.append(rPr)
++                          run_element.append(br)
++                          new_break_p = OxmlElement('w:p')
++                          new_break_p.append(run_element)
++                          pat_p._p.addprevious(new_break_p)
++                          print("  ✅ [ORR-FIX] Page break paragraph inserted before Patent-at-Issue")
++                      else:
++                          print("  ℹ️  [ORR-FIX] Page break not needed/inserted (previous element is not ORR table)")
++
++                      # Enforce requested formatting for PATENT-AT-ISSUE heading
++                      try:
++                          print("  🔧 [ORR-FIX] Normalizing 'PATENT-AT-ISSUE' heading formatting")
++                          # Robustly apply Heading 1: resolve style and set both high-level and XML pStyle
++                          try:
++                              # Log current paragraph style before changes
++                              try:
++                                  current_style_name = getattr(getattr(pat_p, 'style', None), 'name', None)
++                                  print(f"  🔎 [ORR-FIX] Before: paragraph style = {current_style_name}")
++                              except Exception:
++                                  print("  🔎 [ORR-FIX] Before: paragraph style retrieval failed")
++
++                              heading_style = None
++                              # Try to resolve an existing Heading 1 style in the document
++                              available_style_names = []
++                              for st in getattr(doc.styles, '_styles', []):
++                                  try:
++                                      name = getattr(st, 'name', '') or ''
++                                      if name:
++                                          available_style_names.append(str(name))
++                                      if str(name).strip().lower() in ('heading 1', 'heading1'):
++                                          heading_style = st
++                                          break
++                                  except Exception:
++                                      continue
++                              try:
++                                  print(f"  🔎 [ORR-FIX] Available styles (first 10): {available_style_names[:10]}{' ...' if len(available_style_names)>10 else ''}")
++                              except Exception:
++                                  pass
++                              # Fallback: direct lookup by common names
++                              if heading_style is None:
++                                  try:
++                                      heading_style = doc.styles['Heading 1']
++                                  except Exception:
++                                      try:
++                                          heading_style = doc.styles['Heading1']
++                                      except Exception:
++                                          heading_style = None
++                              # Apply style at python-docx level
++                              if heading_style is not None:
++                                  try:
++                                      print(f"  🔎 [ORR-FIX] Resolved Heading 1: name={getattr(heading_style,'name',None)}, id={getattr(heading_style,'style_id',None)}")
++                                  except Exception:
++                                      pass
++                                  pat_p.style = heading_style
++                              else:
++                                  print("  ⚠️ [ORR-FIX] Could not resolve Heading 1 style object; using name 'Heading 1'")
++                                  pat_p.style = 'Heading 1'
++
++                              # Also enforce paragraph style at XML level (pPr/pStyle)
++                              pPr = pat_p._p.get_or_add_pPr()
++                              # Remove any existing pStyle to avoid duplicates
++                              for el in list(pPr):
++                                  if el.tag == qn('w:pStyle'):
++                                      pPr.remove(el)
++                              pStyle = OxmlElement('w:pStyle')
++                              # Use the style_id if available; else common default 'Heading1'
++                              style_id = None
++                              try:
++                                  style_id = getattr(heading_style, 'style_id', None)
++                              except Exception:
++                                  style_id = None
++                              pStyle.set(qn('w:val'), style_id or 'Heading1')
++                              pPr.append(pStyle)
++
++                              # Ensure outline level 0 so Word treats it as a heading
++                              try:
++                                  for el in list(pPr):
++                                      if el.tag == qn('w:outlineLvl'):
++                                          pPr.remove(el)
++                                  outline = OxmlElement('w:outlineLvl')
++                                  outline.set(qn('w:val'), '0')
++                                  pPr.append(outline)
++                              except Exception:
++                                  pass
++
++                              # Log after applying style
++                              try:
++                                  after_style_name = getattr(getattr(pat_p,'style',None),'name',None)
++                                  print(f"  ✅ [ORR-FIX] After: paragraph style = {after_style_name}")
++                                  ps = pPr.find(qn('w:pStyle'))
++                                  print(f"  ✅ [ORR-FIX] XML pStyle w:val = {ps.get(qn('w:val')) if ps is not None else 'None'}")
++                              except Exception:
++                                  pass
++                          except Exception:
++                              print("  ⚠️ [ORR-FIX] Exception while applying Heading 1 style")
++                          # Paragraph spacing
++                          pf = pat_p.paragraph_format
++                          pf.line_spacing = 1.0
++                          pf.space_after = Pt(0) #Nov6
++                          pf.space_before = Pt(0) #Nov6
++                          # Hard-enforce 0pt before/after at XML level to override style defaults
++                          try:
++                              pPr = pat_p._p.get_or_add_pPr()
++                              # Ensure a single spacing element exists
++                              spacing_el = None
++                              for el in list(pPr):
++                                  if el.tag == qn('w:spacing'):
++                                      spacing_el = el
++                                      break
++                              if spacing_el is None:
++                                  spacing_el = OxmlElement('w:spacing')
++                                  pPr.append(spacing_el)
++                              # Force 0pt before/after and disable auto spacing
++                              spacing_el.set(qn('w:before'), '0')
++                              spacing_el.set(qn('w:after'), '0')
++                              spacing_el.set(qn('w:beforeAutospacing'), '0')
++                              spacing_el.set(qn('w:afterAutospacing'), '0')
++                              # Keep single spacing
++                              spacing_el.set(qn('w:lineRule'), 'auto')
++                              try:
++                                  print(f"  ✅ [ORR-FIX] XML spacing before={spacing_el.get(qn('w:before'))}, after={spacing_el.get(qn('w:after'))}, beforeAutospacing={spacing_el.get(qn('w:beforeAutospacing'))}, afterAutospacing={spacing_el.get(qn('w:afterAutospacing'))}")
++                              except Exception:
++                                  pass
++                          except Exception:
++                              print("  ⚠️ [ORR-FIX] Exception while enforcing spacing on heading paragraph")
++
++                          # Log and normalize next paragraph spacing to eliminate apparent 8pt-after
++                          try:
++                              nxt_el = pat_p._p.getnext()
++                              from docx.text.paragraph import Paragraph as _Paragraph
++                              if nxt_el is not None and nxt_el.tag == qn('w:p'):
++                                  nxt_p = _Paragraph(nxt_el, doc)
++                                  npf = nxt_p.paragraph_format
++                                  # Log current (may be None if inherited from style)
++                                  print(f"  🔎 [ORR-FIX] Next paragraph spacing (before fix): before={getattr(npf,'space_before',None)}, after={getattr(npf,'space_after',None)}")
++                                  # Force before=0 to remove visual gap coming from style defaults
++                                  npf.space_before = Pt(0)
++                                  try:
++                                      pPr_n = nxt_p._p.get_or_add_pPr()
++                                      spacing_n = None
++                                      for el in list(pPr_n):
++                                          if el.tag == qn('w:spacing'):
++                                              spacing_n = el
++                                              break
++                                      if spacing_n is None:
++                                          spacing_n = OxmlElement('w:spacing')
++                                          pPr_n.append(spacing_n)
++                                      spacing_n.set(qn('w:before'), '0')
++                                      spacing_n.set(qn('w:beforeAutospacing'), '0')
++                                      print("  ✅ [ORR-FIX] Next paragraph spacing-before forced to 0")
++                                  except Exception:
++                                      pass
++                          except Exception:
++                              pass
++                          # Ensure the visible heading text is in this paragraph (not in the next)
++                          try:
++                              heading_text = (pat_p.text or '').strip()
++                              next_el2 = pat_p._p.getnext()
++                              if (not heading_text) and next_el2 is not None and next_el2.tag == qn('w:p'):
++                                  from docx.text.paragraph import Paragraph as _Paragraph
++                                  next_p2 = _Paragraph(next_el2, doc)
++                                  next_text = (next_p2.text or '').strip()
++                                  if next_text.lower() == 'patent-at-issue':
++                                      pat_p.add_run(next_text)
++                                      for run in list(next_p2.runs):
++                                          run.text = ''
++                                      print("  🔧 [ORR-FIX] Moved 'Patent-at-Issue' text into heading paragraph to avoid Normal duplicate")
++                          except Exception:
++                              pass
++
++                          # Runs formatting
++                          if len(pat_p.runs) == 0:
++                              pat_p.add_run("")
++                          for r in pat_p.runs:
++                              # Uppercase the heading text
++                              if r.text:
++                                  r.text = r.text.upper()
++                              r.font.bold = True
++                              r.font.size = Pt(12)
++                              try:
++                                  r.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
++                              except Exception:
++                                  pass
++                          print("  ✅ [ORR-FIX] 'PATENT-AT-ISSUE' heading formatted (Heading1, bold, 12pt, single, after 0pt)")
++                      except Exception:
++                          print("  ⚠️  [ORR-FIX] Could not apply 'PATENT-AT-ISSUE' heading formatting")
++                  else:
++                      print("  ⚠️  [ORR-FIX] Could not find 'PATENT-AT-ISSUE' heading in destination document")
++              else:
++                  print("  ⚠️  [ORR-FIX] ORR table not detected; skipping header and page break fixes")
++          except Exception:
++              print("  ⚠️  [ORR-FIX] Exception during ensure_orr_header_and_spacing")
