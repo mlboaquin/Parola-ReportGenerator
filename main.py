@@ -381,11 +381,13 @@ class PatentReportGenerator:
 
             # Feb10: also load workbook via openpyxl so we can honor Excel's displayed date formats
             self.ws = None
+            self.wb = None
             if load_workbook is not None:
                 try:
                     with open(file_path, "rb") as f:
                         excel_bytes = f.read()
                     wb = load_workbook(BytesIO(excel_bytes), data_only=True, rich_text=True)
+                    self.wb = wb
                     self.ws = wb.active
                 except Exception as e:
                     self.log(f"Warning: Could not load workbook with openpyxl for precise date formatting: {str(e)}")
@@ -2697,6 +2699,402 @@ class PatentReportGenerator:
         self.log(f"DEBUG: update_mode = {self.update_mode}")
         self.log(f"DEBUG: edited_doc is None = {self.edited_doc is None}")
         try:
+            wb = getattr(self, 'wb', None)
+            doc = self.doc
+            df = self.df
+            PatentAtIssue_Number = self.PatentAtIssue_Number
+            short_patent_name = self.short_patent_name
+            short_patent_name_lower = self.short_patent_name_lower
+            sorted_references = self.sorted_references
+            ClaimNumbers = self.ClaimNumbers
+            claim_word = self.claim_word
+
+            def apply_rich_text_from_excel(paragraph, ws_cell, default_size=9, bold_color=None):
+                from openpyxl.cell.rich_text import CellRichText, TextBlock
+                if ws_cell is None or ws_cell.value is None:
+                    return
+                cell_val = ws_cell.value
+                if isinstance(cell_val, CellRichText):
+                    for block in cell_val:
+                        if isinstance(block, TextBlock):
+                            text = str(block.text) if block.text else ""
+                            run = paragraph.add_run(text)
+                            run.font.name = 'Inter'
+                            run.font.size = Pt(block.font.size if block.font and block.font.size else default_size)
+                            run.bold = bool(block.font.bold) if block.font else False
+                            run.italic = bool(block.font.italic) if block.font else False
+                            if run.bold and bold_color is not None:
+                                run.font.color.rgb = bold_color
+                            else:
+                                run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+                        else:
+                            run = paragraph.add_run(str(block))
+                            run.font.name = 'Inter'
+                            run.font.size = Pt(default_size)
+                elif isinstance(cell_val, str):
+                    run = paragraph.add_run(cell_val)
+                    run.font.name = 'Inter'
+                    run.font.size = Pt(default_size)
+
+            def remove_table_column(table, col_idx):
+                """Remove a column from a python-docx table by index."""
+                for row in table.rows:
+                    cells = row.cells
+                    if col_idx < len(cells):
+                        row._tr.remove(cells[col_idx]._tc)
+                tbl_grid = table._tbl.tblGrid
+                if tbl_grid is not None:
+                    grid_cols = list(tbl_grid.findall(qn('w:gridCol')))
+                    if col_idx < len(grid_cols):
+                        tbl_grid.remove(grid_cols[col_idx])
+
+            def set_table_autofit_to_window(table):
+                table.autofit = False
+                tblPr = table._tbl.tblPr
+                if tblPr is None:
+                    tblPr = OxmlElement('w:tblPr')
+                    table._tbl.insert(0, tblPr)
+                tblW = tblPr.find(qn('w:tblW'))
+                if tblW is None:
+                    tblW = OxmlElement('w:tblW')
+                    tblPr.append(tblW)
+                tblW.set(qn('w:w'), '5000')
+                tblW.set(qn('w:type'), 'pct')
+                tblLayout = tblPr.find(qn('w:tblLayout'))
+                if tblLayout is None:
+                    tblLayout = OxmlElement('w:tblLayout')
+                    tblPr.append(tblLayout)
+                tblLayout.set(qn('w:type'), 'fixed')
+
+            def set_repeating_header_row(table):
+                if not table.rows:
+                    return
+                trPr = table.rows[0]._tr.get_or_add_trPr()
+                tblHeader = trPr.find(qn('w:tblHeader'))
+                if tblHeader is None:
+                    tblHeader = OxmlElement('w:tblHeader')
+                    trPr.append(tblHeader)
+                tblHeader.set(qn('w:val'), 'true')
+
+            def set_key_concepts_column_widths(table, doc_obj, first_width_inches=3.0):
+                if len(table.columns) == 0:
+                    return
+                section = doc_obj.sections[0]
+                usable_twips = int((section.page_width - section.left_margin - section.right_margin) / 635)
+                first_twips = int(Inches(first_width_inches).twips)
+                remaining_cols = max(1, len(table.columns) - 1)
+                remaining_twips = max(720, int((usable_twips - first_twips) / remaining_cols))
+                widths = [first_twips] + [remaining_twips] * remaining_cols
+                tbl_grid = table._tbl.tblGrid
+                if tbl_grid is not None:
+                    grid_cols = list(tbl_grid.findall(qn('w:gridCol')))
+                    for idx, width in enumerate(widths):
+                        if idx < len(grid_cols):
+                            grid_cols[idx].set(qn('w:w'), str(width))
+                for row in table.rows:
+                    for idx, cell in enumerate(row.cells):
+                        if idx >= len(widths):
+                            continue
+                        cell.width = widths[idx]
+                        tcPr = cell._tc.get_or_add_tcPr()
+                        tcW = tcPr.find(qn('w:tcW'))
+                        if tcW is None:
+                            tcW = OxmlElement('w:tcW')
+                            tcPr.append(tcW)
+                        tcW.set(qn('w:w'), str(widths[idx]))
+                        tcW.set(qn('w:type'), 'dxa')
+
+            def find_key_concepts_table(doc_obj):
+                for table in doc_obj.tables:
+                    if len(table.rows) == 0 or len(table.rows[0].cells) == 0:
+                        continue
+                    first_cell_text = table.rows[0].cells[0].text.strip().lower()
+                    if first_cell_text == "key concepts":
+                        return table
+                return None
+
+            def clear_word_cell_content(cell):
+                for p in list(cell.paragraphs):
+                    p._element.getparent().remove(p._element)
+                return cell.add_paragraph()
+
+            def set_word_cell_shading(cell, fill_hex=None):
+                tcPr = cell._tc.get_or_add_tcPr()
+                for shd in list(tcPr.findall(qn('w:shd'))):
+                    tcPr.remove(shd)
+                if fill_hex:
+                    fill_hex = str(fill_hex)[-6:].upper()
+                    shd = OxmlElement('w:shd')
+                    shd.set(qn('w:fill'), fill_hex)
+                    tcPr.append(shd)
+
+            def excel_color_to_hex(excel_color):
+                if excel_color is None:
+                    return None
+                rgb_hex = None
+                try:
+                    if excel_color.type == "rgb" and excel_color.rgb:
+                        rgb_hex = str(excel_color.rgb)[-6:]
+                    elif excel_color.type == "indexed" and excel_color.indexed is not None:
+                        from openpyxl.styles.colors import COLOR_INDEX
+                        indexed_rgb = COLOR_INDEX[int(excel_color.indexed)]
+                        rgb_hex = str(indexed_rgb)[-6:]
+                    elif excel_color.type == "theme" and excel_color.theme is not None:
+                        rgb_hex = get_theme_rgb(excel_color.theme)
+                        rgb_hex = apply_tint_to_rgb(rgb_hex, getattr(excel_color, "tint", 0))
+                except Exception:
+                    rgb_hex = None
+                if not rgb_hex or len(rgb_hex) != 6:
+                    return None
+                return rgb_hex.upper()
+
+            def get_theme_rgb(theme_index):
+                try:
+                    import xml.etree.ElementTree as ET
+                    theme_xml = getattr(wb, "loaded_theme", None)
+                    if not theme_xml:
+                        return None
+                    root = ET.fromstring(theme_xml)
+                    ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+                    clr_scheme = root.find(".//a:clrScheme", ns)
+                    if clr_scheme is None:
+                        return None
+                    theme_order = [
+                        "lt1", "dk1", "lt2", "dk2", "accent1", "accent2",
+                        "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"
+                    ]
+                    if int(theme_index) < 0 or int(theme_index) >= len(theme_order):
+                        return None
+                    node = clr_scheme.find(f"a:{theme_order[int(theme_index)]}", ns)
+                    if node is None:
+                        return None
+                    srgb = node.find(".//a:srgbClr", ns)
+                    if srgb is not None and srgb.get("val"):
+                        return srgb.get("val")[-6:]
+                    sysclr = node.find(".//a:sysClr", ns)
+                    if sysclr is not None and sysclr.get("lastClr"):
+                        return sysclr.get("lastClr")[-6:]
+                except Exception:
+                    return None
+                return None
+
+            def apply_tint_to_rgb(rgb_hex, tint):
+                if rgb_hex is None:
+                    return None
+                rgb_hex = rgb_hex[-6:]
+                if tint is None:
+                    tint = 0
+                try:
+                    tint = float(tint)
+                except Exception:
+                    tint = 0
+                result = []
+                for i in range(0, 6, 2):
+                    channel = int(rgb_hex[i:i+2], 16)
+                    if tint < 0:
+                        channel = int(channel * (1.0 + tint))
+                    else:
+                        channel = int(channel + (255 - channel) * tint)
+                    channel = max(0, min(255, channel))
+                    result.append(f"{channel:02X}")
+                return "".join(result)
+
+            def excel_fill_to_hex(cell):
+                if cell is None or cell.fill is None:
+                    return None
+                try:
+                    if cell.fill.fill_type != "solid":
+                        return None
+                    return excel_color_to_hex(cell.fill.fgColor)
+                except Exception:
+                    return None
+
+            def clear_paragraph_pagination_constraints(paragraph):
+                try:
+                    paragraph.paragraph_format.keep_with_next = False
+                    paragraph.paragraph_format.keep_together = False
+                    paragraph.paragraph_format.page_break_before = False
+                except Exception:
+                    pass
+                try:
+                    pPr = paragraph._p.get_or_add_pPr()
+                    for tag in ("keepNext", "keepLines", "pageBreakBefore"):
+                        for el in list(pPr.findall(qn(f"w:{tag}"))):
+                            pPr.remove(el)
+                except Exception:
+                    pass
+
+            def allow_table_to_break_across_pages(table):
+                for row in table.rows:
+                    try:
+                        trPr = row._tr.get_or_add_trPr()
+                        for el in list(trPr.findall(qn('w:cantSplit'))):
+                            trPr.remove(el)
+                    except Exception:
+                        pass
+                    for cell in row.cells:
+                        for paragraph in cell.paragraphs:
+                            clear_paragraph_pagination_constraints(paragraph)
+
+            def relax_mappings_overview_pagination(doc_obj):
+                in_section = False
+                body = doc_obj.element.body
+                for child in body.iterchildren():
+                    if child.tag == qn('w:p'):
+                        para = Paragraph(child, doc_obj)
+                        text = para.text.strip()
+                        text_upper = text.upper()
+                        if text_upper == "MAPPINGS OVERVIEW":
+                            in_section = True
+                            clear_paragraph_pagination_constraints(para)
+                            continue
+                        if in_section and text_upper == "MAPPINGS BASED ON SELECTED REFERENCES":
+                            break
+                        if in_section:
+                            clear_paragraph_pagination_constraints(para)
+                    elif in_section and child.tag == qn('w:tbl'):
+                        from docx.table import Table
+                        current_table = Table(child, doc_obj)
+                        try:
+                            first_text = current_table.rows[0].cells[0].text.strip().lower() if current_table.rows else ""
+                        except Exception:
+                            first_text = ""
+                        if first_text == "key concepts":
+                            allow_table_to_break_across_pages(current_table)
+
+            def populate_key_concepts_table_from_matrix(doc_obj):
+                matrix_ws = None
+                for sheet_name in wb.sheetnames:
+                    if sheet_name.strip().lower() == "matrix":
+                        matrix_ws = wb[sheet_name]
+                        break
+                if matrix_ws is None:
+                    print("⚠ No Matrix sheet found. Skipping Key Concepts table.")
+                    return
+
+                # Reference column headers are in ROW 2 (not row 1)
+                # Dynamically find "A" in row 2, then collect consecutive headers from there
+                reference_cols = []
+                ref_start_col = None
+
+                for scan_col in range(1, matrix_ws.max_column + 1):
+                    cell_val = matrix_ws.cell(row=2, column=scan_col).value
+                    if cell_val is not None and str(cell_val).strip().upper() == "A":
+                        ref_start_col = scan_col
+                        break
+
+                if ref_start_col is None:
+                    print("⚠ Could not find 'A' header in row 2 of Matrix sheet. Skipping Key Concepts table.")
+                    return
+
+                col_idx = ref_start_col
+                while col_idx <= matrix_ws.max_column:
+                    header_value = matrix_ws.cell(row=2, column=col_idx).value
+                    if header_value is None or str(header_value).strip() == "":
+                        break
+                    reference_cols.append(col_idx)
+                    col_idx += 1
+
+                print(f"✓ Found reference headers in row 2, starting col={ref_start_col}: {[matrix_ws.cell(row=2, column=c).value for c in reference_cols]}")
+
+                # Find "Key Concept" column dynamically
+                key_concept_col = None
+                key_concept_data_start_row = None
+
+                for scan_row in range(1, matrix_ws.max_row + 1):
+                    for scan_col in range(1, matrix_ws.max_column + 1):
+                        cell_val = matrix_ws.cell(row=scan_row, column=scan_col).value
+                        if cell_val and str(cell_val).strip().lower() in ("key concept", "key concepts"):
+                            key_concept_col = scan_col
+                            key_concept_data_start_row = scan_row + 1
+                            print(f"✓ Found 'Key Concept' column at col={scan_col}, data starts at row={scan_row + 1}")
+                            break
+                    if key_concept_col is not None:
+                        break
+
+                if key_concept_col is None:
+                    print("⚠ Could not find 'Key Concept' column in Matrix sheet. Skipping Key Concepts table.")
+                    return
+
+                # Collect concept rows dynamically
+                concept_rows = []
+                row_idx = key_concept_data_start_row
+                while row_idx <= matrix_ws.max_row:
+                    concept_cell = matrix_ws.cell(row=row_idx, column=key_concept_col)
+                    concept_value = concept_cell.value
+                    if concept_value is None or str(concept_value).strip() == "":
+                        break
+                    concept_rows.append(row_idx)
+                    row_idx += 1
+
+                table = find_key_concepts_table(doc_obj)
+                if table is None:
+                    print("⚠ Key Concepts table not found in Word template.")
+                    return
+
+                if not reference_cols:
+                    print("⚠ No Matrix reference columns found. Skipping Key Concepts table.")
+                    return
+
+                total_cols = 1 + len(reference_cols)
+
+                while len(table.columns) < total_cols:
+                    table.add_column(Inches(0.7))
+                while len(table.columns) > total_cols:
+                    remove_table_column(table, len(table.columns) - 1)
+
+                template_row_copy = deepcopy(table.rows[1]._tr) if len(table.rows) > 1 else None
+                for row in list(table.rows[1:]):
+                    table._tbl.remove(row._tr)
+
+                from docx.table import _Row
+                for _ in concept_rows:
+                    if template_row_copy is not None:
+                        new_tr = deepcopy(template_row_copy)
+                        table._tbl.append(new_tr)
+                        _Row(new_tr, table)
+                    else:
+                        table.add_row()
+
+                # Header row - read labels from ROW 2 of Matrix sheet
+                header_cells = table.rows[0].cells
+                for c_idx, cell in enumerate(header_cells):
+                    p = clear_word_cell_content(cell)
+                    p.paragraph_format.space_before = Pt(0)
+                    p.paragraph_format.space_after = Pt(0)
+                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT if c_idx == 0 else WD_ALIGN_PARAGRAPH.CENTER
+                    if c_idx == 0:
+                        label = "Key Concepts"
+                    else:
+                        matrix_col_idx = reference_cols[c_idx - 1]
+                        header_val = matrix_ws.cell(row=2, column=matrix_col_idx).value
+                        label = str(header_val).strip() if header_val else chr(ord('A') + c_idx - 1)
+                    run = p.add_run(label)
+                    run.font.name = "Inter"
+                    run.font.size = Pt(9)
+                    run.bold = True
+
+                # Body rows - concept from Column D, colors from columns F onward
+                for out_row_idx, matrix_row_idx in enumerate(concept_rows, start=1):
+                    row = table.rows[out_row_idx]
+
+                    concept_cell = row.cells[0]
+                    p = clear_word_cell_content(concept_cell)
+                    p.paragraph_format.space_before = Pt(0)
+                    p.paragraph_format.space_after = Pt(0)
+                    apply_rich_text_from_excel(p, matrix_ws.cell(row=matrix_row_idx, column=key_concept_col))
+
+                    for out_col_idx, matrix_col_idx in enumerate(reference_cols, start=1):
+                        word_cell = row.cells[out_col_idx]
+                        clear_word_cell_content(word_cell)
+                        fill_hex = excel_fill_to_hex(matrix_ws.cell(row=matrix_row_idx, column=matrix_col_idx))
+                        set_word_cell_shading(word_cell, fill_hex)
+
+                set_table_autofit_to_window(table)
+                set_key_concepts_column_widths(table, doc_obj, 3.0)
+                set_repeating_header_row(table)
+                print(f"✓ Populated Key Concepts table with {len(concept_rows)} concepts and {len(reference_cols)} reference columns.")
+
             #Feb16: Process Mappings Overview placeholder
             mappings_overview_text = f"{self.claim_word} {self.format_claims_as_ranges(self.ClaimNumbers)} of the {self.short_patent_name_lower}"
             self.replace_in_paragraphs_and_tables(self.doc, {
@@ -2730,6 +3128,8 @@ class PatentReportGenerator:
                 key=lambda r: (self.rank_sort_key(r), self.clean_text(r.PublicationNumber), self.clean_text(r.Title))
             )
             self.reference_display_rank_map = self.build_display_rank_map(self.sorted_references)
+            populate_key_concepts_table_from_matrix(doc) #JUNE25
+            relax_mappings_overview_pagination(doc) #JUNE25
             color_cycle = [RGBColor(0x00, 0x70, 0xC0), RGBColor(0xC0, 0x00, 0x00)]
             
             # Initialize global color index for consistent coloring across claims
